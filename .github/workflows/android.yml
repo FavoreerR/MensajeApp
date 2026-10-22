@@ -30,6 +30,11 @@ jobs:
           gradle-version: '8.9'
       - name: Compile Android debug APK
         run: gradle --no-daemon --stacktrace :app:assembleDebug
+      - name: Show APK signing fingerprints for Firebase
+        run: |
+          APKSIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
+          "$APKSIGNER" verify --print-certs app/build/outputs/apk/debug/app-debug.apk | tee signing-fingerprints.txt
+          echo 'NOTE: GitHub-hosted runners generate an ephemeral debug keystore. These SHA values can change on every build. For stable Firebase phone authentication configure a persistent signing keystore securely.'
       - name: Verify APK was generated
         run: test -s app/build/outputs/apk/debug/app-debug.apk
       - name: Upload installable debug APK
