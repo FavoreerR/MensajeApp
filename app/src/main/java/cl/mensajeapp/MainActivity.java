@@ -28,15 +28,25 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import java.text.DateFormat;
 import java.util.Date;
+import com.google.firebase.firestore.FirebaseFirestore;
+import com.google.firebase.firestore.ListenerRegistration;
+import com.google.firebase.firestore.Query;
+import com.google.firebase.firestore.FieldValue;
+import com.google.firebase.firestore.DocumentSnapshot;
+import java.util.Arrays;
+import java.util.ArrayList;
+import java.util.Collections;
 
 public class MainActivity extends Activity {
     private LinearLayout root;
     private final int green = Color.rgb(10, 125, 99);
     private static final String KEY = "demo_messages";
     private FirebaseAuth auth;
+    private FirebaseFirestore db;
+    private ListenerRegistration liveMessages;
     private String verificationId;
     private PhoneAuthProvider.ForceResendingToken resendToken;
-    @Override public void onCreate(Bundle state) { super.onCreate(state); getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE); getWindow().getDecorView().setFitsSystemWindows(false); getWindow().setStatusBarColor(green); getWindow().setNavigationBarColor(Color.rgb(246, 248, 247)); if (Build.VERSION.SDK_INT >= 26) getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR); auth = FirebaseAuth.getInstance(); showHome(); }
+    @Override public void onCreate(Bundle state) { super.onCreate(state); getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE); getWindow().getDecorView().setFitsSystemWindows(false); getWindow().setStatusBarColor(green); getWindow().setNavigationBarColor(Color.rgb(246, 248, 247)); if (Build.VERSION.SDK_INT >= 26) getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR); auth = FirebaseAuth.getInstance(); db = FirebaseFirestore.getInstance(); showHome(); }
     private int dp(int n) { return (int)(getResources().getDisplayMetrics().density * n); }
     private TextView text(String value, int size, int color, boolean bold) {
         TextView t = new TextView(this); t.setText(value); t.setTextSize(size); t.setTextColor(color);
@@ -44,6 +54,7 @@ public class MainActivity extends Activity {
         t.setPadding(dp(18), dp(14), dp(18), dp(14)); return t;
     }
     private void start(String title) {
+        if (liveMessages != null) { liveMessages.remove(); liveMessages = null; }
         root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(Color.rgb(246, 248, 247));
         setContentView(root);
@@ -66,13 +77,18 @@ public class MainActivity extends Activity {
             root.addView(login); login.setOnClickListener(v -> showPhoneLogin());
         } else {
             root.addView(text("Número verificado: " + signedUser.getPhoneNumber(), 14, green, true));
+            root.addView(text("Tu código de usuario: " + signedUser.getUid(), 12, Color.DKGRAY, false));
+            Button newChat = new Button(this); newChat.setText("Nuevo chat entre teléfonos"); root.addView(newChat);
+            newChat.setOnClickListener(v -> showNewChat());
+            Button myChats = new Button(this); myChats.setText("Mis conversaciones"); root.addView(myChats);
+            myChats.setOnClickListener(v -> showSavedChats());
             Button logout = new Button(this); logout.setText("Cerrar sesión"); root.addView(logout);
             logout.setOnClickListener(v -> { auth.signOut(); showHome(); });
         }
-        root.addView(text("Versión de prueba • mensajes guardados solo en este teléfono", 14, Color.GRAY, false));
+        root.addView(text("Los chats de demostración siguen siendo locales. Los chats nuevos usan Firestore.", 14, Color.GRAY, false));
         Button sample = new Button(this); sample.setText("Chat de demostración (" + load().length() + ")");
         root.addView(sample); sample.setOnClickListener(v -> showChat());
-        root.addView(text("Próximamente: acceso con número, búsqueda de contactos y mensajes entre dispositivos.", 14, Color.GRAY, false));
+        root.addView(text("Para conversar, comparte tu código de usuario con alguien de confianza que también tenga MensajeApp.", 14, Color.GRAY, false));
     }
 
     private void showPhoneLogin() {
@@ -186,5 +202,102 @@ public class MainActivity extends Activity {
         params.setMargins(dp(16), dp(4), dp(16), dp(4));
         parent.addView(bubble, params);
     }
+
+    private String chatId(String a, String b) {
+        return a.compareTo(b) < 0 ? a + "_" + b : b + "_" + a;
+    }
+    private void showNewChat() {
+        FirebaseUser me = auth.getCurrentUser();
+        if (me == null) { showPhoneLogin(); return; }
+        start("Nuevo chat");
+        root.addView(text("Pide a la otra persona su código de usuario de MensajeApp. No necesitas compartir tu teléfono.", 15, Color.DKGRAY, false));
+        EditText peer = new EditText(this); peer.setHint("Código de usuario del contacto");
+        peer.setSingleLine(true); root.addView(peer);
+        TextView status = text("", 13, Color.GRAY, false); root.addView(status);
+        Button go = new Button(this); go.setText("Iniciar conversación"); root.addView(go);
+        go.setOnClickListener(v -> {
+            String other = peer.getText().toString().trim();
+            if (!other.matches("[A-Za-z0-9]{10,128}") || other.equals(me.getUid())) {
+                peer.setError("Ingresa un código válido de otra persona"); return;
+            }
+            String id = chatId(me.getUid(), other);
+            ArrayList<String> ids = new ArrayList<>(Arrays.asList(me.getUid(), other));
+            Collections.sort(ids);
+            go.setEnabled(false);
+            db.collection("chats").document(id).get().addOnCompleteListener(task -> {
+                if (!task.isSuccessful()) { go.setEnabled(true); status.setText("No se pudo consultar: " + task.getException().getLocalizedMessage()); return; }
+                if (task.getResult().exists()) { rememberChat(id, other); showRemoteChat(id, other); return; }
+                java.util.Map<String,Object> data = new java.util.HashMap<>();
+                data.put("memberIds", ids); data.put("createdAt", FieldValue.serverTimestamp());
+                db.collection("chats").document(id).set(data).addOnSuccessListener(v2 -> {
+                    rememberChat(id, other); showRemoteChat(id, other);
+                }).addOnFailureListener(e -> { go.setEnabled(true); status.setText("No se pudo crear el chat: " + e.getLocalizedMessage()); });
+            });
+        });
+        Button back = new Button(this); back.setText("Volver"); root.addView(back); back.setOnClickListener(v -> showHome());
+    }
+    private void rememberChat(String id, String other) {
+        getPreferences(MODE_PRIVATE).edit().putString("peer_" + id, other).apply();
+        java.util.Set<String> saved = new java.util.HashSet<>(getPreferences(MODE_PRIVATE).getStringSet("known_chats", Collections.emptySet()));
+        saved.add(id);
+        getPreferences(MODE_PRIVATE).edit().putStringSet("known_chats", saved).apply();
+    }
+    private void showSavedChats() {
+        start("Mis conversaciones");
+        root.addView(text("Chats abiertos desde este teléfono", 16, Color.DKGRAY, true));
+        for (String id : getPreferences(MODE_PRIVATE).getStringSet("known_chats", Collections.emptySet())) {
+            String peer = getPreferences(MODE_PRIVATE).getString("peer_" + id, "");
+            Button chat = new Button(this); chat.setText("Chat: " + peer);
+            root.addView(chat); chat.setOnClickListener(v -> showRemoteChat(id, peer));
+        }
+        Button back = new Button(this); back.setText("Volver"); root.addView(back); back.setOnClickListener(v -> showHome());
+    }
+    private void showRemoteChat(String id, String other) {
+        FirebaseUser me = auth.getCurrentUser();
+        if (me == null) { showHome(); return; }
+        start("Chat en tiempo real");
+        root.addView(text("Contacto: " + other, 12, Color.GRAY, false));
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout messages = new LinearLayout(this); messages.setOrientation(LinearLayout.VERTICAL);
+        scroll.addView(messages); root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        LinearLayout composer = new LinearLayout(this); composer.setPadding(dp(8), dp(8), dp(8), dp(8));
+        EditText entry = new EditText(this); entry.setHint("Mensaje"); entry.setMaxLines(4);
+        composer.addView(entry, new LinearLayout.LayoutParams(0, -2, 1));
+        Button send = new Button(this); send.setText("Enviar"); composer.addView(send);
+        root.addView(composer);
+        send.setOnClickListener(v -> {
+            String msg = entry.getText().toString().trim();
+            if (msg.isEmpty()) return;
+            if (msg.length() > 4000) { entry.setError("Máximo 4000 caracteres"); return; }
+            send.setEnabled(false);
+            java.util.Map<String,Object> data = new java.util.HashMap<>();
+            data.put("senderId", me.getUid()); data.put("text", msg);
+            data.put("createdAt", FieldValue.serverTimestamp());
+            db.collection("chats").document(id).collection("messages").add(data)
+                .addOnSuccessListener(ref -> { entry.setText(""); send.setEnabled(true); })
+                .addOnFailureListener(e -> { send.setEnabled(true); Toast.makeText(this, "Error al enviar: " + e.getLocalizedMessage(), Toast.LENGTH_LONG).show(); });
+        });
+        liveMessages = db.collection("chats").document(id).collection("messages")
+            .orderBy("createdAt", Query.Direction.ASCENDING).limitToLast(100)
+            .addSnapshotListener((snapshot, error) -> {
+                if (error != null) { Toast.makeText(this, "No se pudo cargar el chat: " + error.getLocalizedMessage(), Toast.LENGTH_LONG).show(); return; }
+                if (snapshot == null) return;
+                messages.removeAllViews();
+                for (DocumentSnapshot doc : snapshot.getDocuments()) {
+                    String msg = doc.getString("text");
+                    boolean mine = me.getUid().equals(doc.getString("senderId"));
+                    if (msg == null) continue;
+                    TextView bubble = text(msg, 16, Color.DKGRAY, false);
+                    bubble.setBackgroundColor(mine ? Color.rgb(218,246,227) : Color.WHITE);
+                    bubble.setGravity(mine ? Gravity.END : Gravity.START);
+                    LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1,-2);
+                    lp.setMargins(dp(12),dp(4),dp(12),dp(4));
+                    messages.addView(bubble,lp);
+                }
+                scroll.post(() -> scroll.fullScroll(View.FOCUS_DOWN));
+            });
+        Button back = new Button(this); back.setText("Volver"); root.addView(back); back.setOnClickListener(v -> showHome());
+    }
+
     @Override public void onBackPressed() { showHome(); }
 }
