@@ -1,6 +1,13 @@
 package cl.mensajeapp;
 
 import android.app.Activity;
+import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.util.Base64;
+import android.widget.ImageView;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 import android.os.Bundle;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -45,6 +52,9 @@ public class MainActivity extends Activity {
     private FirebaseFirestore db;
     private ListenerRegistration liveMessages;
     private String verificationId;
+    private static final int PICK_AVATAR = 81;
+    private ImageView profilePreview;
+    private String pendingAvatar = "";
     private PhoneAuthProvider.ForceResendingToken resendToken;
     @Override public void onCreate(Bundle state) { super.onCreate(state); getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE); getWindow().getDecorView().setFitsSystemWindows(false); getWindow().setStatusBarColor(green); getWindow().setNavigationBarColor(Color.rgb(246, 248, 247)); if (Build.VERSION.SDK_INT >= 26) getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR); auth = FirebaseAuth.getInstance(); db = FirebaseFirestore.getInstance(); showHome(); }
     private int dp(int n) { return (int)(getResources().getDisplayMetrics().density * n); }
@@ -114,7 +124,9 @@ public class MainActivity extends Activity {
             root.addView(login); login.setOnClickListener(v -> showEmailLogin());
         } else {
             root.addView(text("Sesión: " + (signedUser.getEmail() != null ? signedUser.getEmail() : "Usuario registrado"), 14, green, true));
-            root.addView(text("Tu código de usuario: " + signedUser.getUid(), 12, Color.DKGRAY, false));
+            root.addView(text("Tu perfil y nombre de usuario", 18, Color.DKGRAY, true));
+            Button profile = new Button(this); profile.setText("Editar perfil y foto"); root.addView(profile);
+            profile.setOnClickListener(v -> showProfile());
             Button newChat = new Button(this); newChat.setText("Nuevo chat entre teléfonos"); root.addView(newChat);
             newChat.setOnClickListener(v -> showNewChat());
             Button myChats = new Button(this); myChats.setText("Mis conversaciones"); root.addView(myChats);
@@ -122,7 +134,7 @@ public class MainActivity extends Activity {
             Button logout = new Button(this); logout.setText("Cerrar sesión"); root.addView(logout);
             logout.setOnClickListener(v -> { auth.signOut(); showHome(); });
         }
-        root.addView(text("Los chats de demostración siguen siendo locales. Los chats nuevos usan Firestore.", 14, Color.GRAY, false));
+        root.addView(text("Busca contactos por su @usuario. Tus conversaciones se sincronizan por Internet.", 14, Color.GRAY, false));
         Button sample = new Button(this); sample.setText("Chat de demostración (" + load().length() + ")");
         root.addView(sample); sample.setOnClickListener(v -> showChat());
         root.addView(text("Para conversar, comparte tu código de usuario con alguien de confianza que también tenga MensajeApp.", 14, Color.GRAY, false));
@@ -276,32 +288,120 @@ public class MainActivity extends Activity {
     private void showNewChat() {
         FirebaseUser me = auth.getCurrentUser();
         if (me == null) { showEmailLogin(); return; }
-        start("Nuevo chat");
-        root.addView(text("Pide a la otra persona su código de usuario de MensajeApp. No necesitas compartir tu teléfono.", 15, Color.DKGRAY, false));
-        EditText peer = new EditText(this); peer.setHint("Código de usuario del contacto");
-        peer.setSingleLine(true); root.addView(peer);
+        start("Buscar contacto");
+        root.addView(text("Escribe el nombre de usuario de la otra persona, por ejemplo @amigo123.", 15, Color.DKGRAY, false));
+        EditText peer = new EditText(this); peer.setHint("@nombredeusuario"); peer.setSingleLine(true); root.addView(peer);
         TextView status = text("", 13, Color.GRAY, false); root.addView(status);
-        Button go = new Button(this); go.setText("Iniciar conversación"); root.addView(go);
+        Button go = new Button(this); go.setText("Buscar e iniciar chat"); root.addView(go);
         go.setOnClickListener(v -> {
-            String other = peer.getText().toString().trim();
-            if (!other.matches("[A-Za-z0-9]{10,128}") || other.equals(me.getUid())) {
-                peer.setError("Ingresa un código válido de otra persona"); return;
-            }
-            String id = chatId(me.getUid(), other);
-            ArrayList<String> ids = new ArrayList<>(Arrays.asList(me.getUid(), other));
-            Collections.sort(ids);
-            go.setEnabled(false);
-            db.collection("chats").document(id).get().addOnCompleteListener(task -> {
-                if (!task.isSuccessful()) { go.setEnabled(true); status.setText("No se pudo consultar: " + task.getException().getLocalizedMessage()); return; }
-                if (task.getResult().exists()) { rememberChat(id, other); showRemoteChat(id, other); return; }
-                java.util.Map<String,Object> data = new java.util.HashMap<>();
-                data.put("memberIds", ids); data.put("createdAt", FieldValue.serverTimestamp());
-                db.collection("chats").document(id).set(data).addOnSuccessListener(v2 -> {
-                    rememberChat(id, other); showRemoteChat(id, other);
-                }).addOnFailureListener(e -> { go.setEnabled(true); status.setText("No se pudo crear el chat: " + e.getLocalizedMessage()); });
+            String handle = peer.getText().toString().trim().toLowerCase(java.util.Locale.ROOT).replaceFirst("^@", "");
+            if (!handle.matches("[a-z0-9_]{3,20}")) { peer.setError("Usa de 3 a 20 letras, números o _"); return; }
+            go.setEnabled(false); status.setText("Buscando contacto...");
+            db.collection("usernames").document(handle).get().addOnCompleteListener(found -> {
+                if (!found.isSuccessful() || !found.getResult().exists()) {
+                    go.setEnabled(true); status.setText("No encontramos ese usuario."); return;
+                }
+                String other = found.getResult().getString("uid");
+                if (other == null || other.equals(me.getUid())) {
+                    go.setEnabled(true); status.setText("Selecciona otra persona."); return;
+                }
+                String id = chatId(me.getUid(), other);
+                ArrayList<String> ids = new ArrayList<>(Arrays.asList(me.getUid(), other));
+                Collections.sort(ids);
+                db.collection("chats").document(id).get().addOnCompleteListener(task -> {
+                    if (!task.isSuccessful()) { go.setEnabled(true); status.setText("No se pudo consultar el chat."); return; }
+                    if (task.getResult().exists()) { rememberChat(id, other); showRemoteChat(id, other); return; }
+                    java.util.Map<String,Object> data = new java.util.HashMap<>();
+                    data.put("memberIds", ids); data.put("createdAt", FieldValue.serverTimestamp());
+                    db.collection("chats").document(id).set(data).addOnSuccessListener(v2 -> {
+                        rememberChat(id, other); showRemoteChat(id, other);
+                    }).addOnFailureListener(e -> { go.setEnabled(true); status.setText("No se pudo crear: " + e.getLocalizedMessage()); });
+                });
             });
         });
         Button back = new Button(this); back.setText("Volver"); root.addView(back); back.setOnClickListener(v -> showHome());
+    }
+    private ImageView avatarView(String encoded) {
+        ImageView image = new ImageView(this);
+        image.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        image.setBackgroundColor(Color.rgb(207, 226, 235));
+        if (encoded != null && !encoded.isEmpty()) {
+            try {
+                byte[] bytes = Base64.decode(encoded, Base64.DEFAULT);
+                Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+                if (bitmap != null) image.setImageBitmap(bitmap);
+            } catch (Exception ignored) { }
+        }
+        return image;
+    }
+    private void showProfile() {
+        FirebaseUser me = auth.getCurrentUser();
+        if (me == null) { showEmailLogin(); return; }
+        start("Mi perfil");
+        root.addView(text("Tu foto y nombre serán visibles para quienes conozcan tu @usuario.", 14, Color.DKGRAY, false));
+        profilePreview = avatarView(pendingAvatar);
+        LinearLayout.LayoutParams photoParams = new LinearLayout.LayoutParams(dp(104), dp(104));
+        photoParams.setMargins(dp(22), dp(10), dp(22), dp(10)); root.addView(profilePreview, photoParams);
+        Button photo = new Button(this); photo.setText("Elegir foto de galería"); root.addView(photo);
+        photo.setOnClickListener(v -> {
+            Intent intent = new Intent(Intent.ACTION_GET_CONTENT); intent.setType("image/*");
+            startActivityForResult(intent, PICK_AVATAR);
+        });
+        EditText display = new EditText(this); display.setHint("Tu nombre visible"); root.addView(display);
+        EditText handle = new EditText(this); handle.setHint("Nombre de usuario (sin @)"); root.addView(handle);
+        TextView status = text("El nombre de usuario se elige una vez y debe ser único.", 13, Color.GRAY, false); root.addView(status);
+        Button save = new Button(this); save.setText("Guardar perfil"); root.addView(save);
+        db.collection("users").document(me.getUid()).get().addOnSuccessListener(doc -> {
+            if (doc.exists()) {
+                display.setText(doc.getString("displayName"));
+                String savedHandle = doc.getString("username");
+                if (savedHandle != null) { handle.setText(savedHandle); handle.setEnabled(false); }
+                String encoded = doc.getString("avatar");
+                if (encoded != null && pendingAvatar.isEmpty()) {
+                    pendingAvatar = encoded; profilePreview.setImageDrawable(avatarView(encoded).getDrawable());
+                }
+            }
+        });
+        save.setOnClickListener(v -> {
+            String name = display.getText().toString().trim();
+            String username = handle.getText().toString().trim().toLowerCase(java.util.Locale.ROOT).replaceFirst("^@", "");
+            if (name.length() < 2 || name.length() > 40) { display.setError("Entre 2 y 40 caracteres"); return; }
+            if (!username.matches("[a-z0-9_]{3,20}")) { handle.setError("Entre 3 y 20 letras, números o _"); return; }
+            save.setEnabled(false);
+            db.runTransaction(transaction -> {
+                com.google.firebase.firestore.DocumentReference profile = db.collection("users").document(me.getUid());
+                com.google.firebase.firestore.DocumentReference alias = db.collection("usernames").document(username);
+                com.google.firebase.firestore.DocumentSnapshot existing = transaction.get(profile);
+                String old = existing.getString("username");
+                if (old != null && !old.equals(username)) throw new IllegalStateException("Tu @usuario no se puede cambiar todavía");
+                com.google.firebase.firestore.DocumentSnapshot claimed = transaction.get(alias);
+                if (claimed.exists() && !me.getUid().equals(claimed.getString("uid"))) throw new IllegalStateException("Ese @usuario ya está ocupado");
+                java.util.Map<String,Object> data = new java.util.HashMap<>();
+                data.put("displayName", name); data.put("username", username);
+                data.put("avatar", pendingAvatar);
+                if (!existing.exists()) data.put("createdAt", FieldValue.serverTimestamp());
+                transaction.set(profile, data, com.google.firebase.firestore.SetOptions.merge());
+                if (!claimed.exists()) transaction.set(alias, java.util.Collections.singletonMap("uid", me.getUid()));
+                return null;
+            }).addOnSuccessListener(ok -> { pendingAvatar = ""; Toast.makeText(this, "Perfil guardado", Toast.LENGTH_SHORT).show(); showHome(); })
+              .addOnFailureListener(e -> { save.setEnabled(true); status.setText("No se pudo guardar: " + e.getLocalizedMessage()); });
+        });
+        Button back = new Button(this); back.setText("Volver"); root.addView(back); back.setOnClickListener(v -> showHome());
+    }
+    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != PICK_AVATAR || resultCode != RESULT_OK || data == null || data.getData() == null) return;
+        try (InputStream input = getContentResolver().openInputStream(data.getData())) {
+            Bitmap original = BitmapFactory.decodeStream(input);
+            if (original == null) throw new IllegalArgumentException("Imagen no válida");
+            int width = original.getWidth(), height = original.getHeight();
+            float scale = Math.min(1f, 192f / Math.max(width, height));
+            Bitmap small = Bitmap.createScaledBitmap(original, Math.max(1, (int)(width * scale)), Math.max(1, (int)(height * scale)), true);
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            small.compress(Bitmap.CompressFormat.JPEG, 65, output);
+            pendingAvatar = Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP);
+            if (profilePreview != null) profilePreview.setImageBitmap(small);
+        } catch (Exception e) { Toast.makeText(this, "No se pudo abrir la imagen", Toast.LENGTH_LONG).show(); }
     }
     private void rememberChat(String id, String other) {
         getPreferences(MODE_PRIVATE).edit().putString("peer_" + id, other).apply();
