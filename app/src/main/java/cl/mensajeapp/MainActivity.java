@@ -39,7 +39,7 @@ import java.util.Collections;
 
 public class MainActivity extends Activity {
     private LinearLayout root;
-    private final int green = Color.rgb(10, 125, 99);
+    private final int green = Color.rgb(8, 128, 117);
     private static final String KEY = "demo_messages";
     private FirebaseAuth auth;
     private FirebaseFirestore db;
@@ -56,10 +56,47 @@ public class MainActivity extends Activity {
     private void start(String title) {
         if (liveMessages != null) { liveMessages.remove(); liveMessages = null; }
         root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(Color.rgb(246, 248, 247));
+        root.setBackground(new GradientDrawable(GradientDrawable.Orientation.TL_BR, new int[]{Color.rgb(230, 249, 249), Color.rgb(247, 250, 255), Color.rgb(224, 236, 251)}));
+        root.setPadding(dp(10), dp(8), dp(10), dp(8));
+        root.setOnHierarchyChangeListener(new android.view.ViewGroup.OnHierarchyChangeListener() {
+            @Override public void onChildViewAdded(View parent, View child) {
+                if (child instanceof Button) styleButton((Button) child);
+                if (child instanceof EditText) styleField((EditText) child);
+            }
+            @Override public void onChildViewRemoved(View parent, View child) { }
+        });
         setContentView(root);
-        TextView header = text(title, 24, Color.WHITE, true); header.setBackgroundColor(green);
+        TextView header = text("✦  " + title, 24, Color.WHITE, true);
+        GradientDrawable headerBg = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
+            new int[]{Color.rgb(10, 35, 65), Color.rgb(5, 111, 115)});
+        headerBg.setCornerRadius(dp(20));
+        header.setBackground(headerBg);
+        header.setElevation(dp(5));
         root.addView(header);
+    }
+    private void styleButton(Button button) {
+        GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
+            new int[]{Color.rgb(8, 122, 133), Color.rgb(8, 154, 128)});
+        bg.setCornerRadius(dp(18));
+        button.setBackground(bg);
+        button.setTextColor(Color.WHITE);
+        button.setAllCaps(false);
+        button.setTextSize(15);
+        button.setElevation(dp(3));
+        button.setPadding(dp(16), dp(10), dp(16), dp(10));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(52));
+        params.setMargins(dp(10), dp(6), dp(10), dp(6));
+        button.setLayoutParams(params);
+    }
+    private void styleField(EditText field) {
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(Color.WHITE);
+        bg.setCornerRadius(dp(16));
+        bg.setStroke(dp(1), Color.rgb(197, 218, 227));
+        field.setBackground(bg);
+        field.setTextColor(Color.rgb(21, 43, 57));
+        field.setHintTextColor(Color.rgb(105, 125, 137));
+        field.setPadding(dp(16), dp(12), dp(16), dp(12));
     }
     private JSONArray load() {
         try { return new JSONArray(getPreferences(MODE_PRIVATE).getString(KEY, "[]")); }
