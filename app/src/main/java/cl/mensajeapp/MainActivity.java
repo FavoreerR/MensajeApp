@@ -24,7 +24,7 @@ public class MainActivity extends Activity {
     private LinearLayout root;
     private final int green = Color.rgb(10, 125, 99);
     private static final String KEY = "demo_messages";
-    @Override public void onCreate(Bundle state) { super.onCreate(state); getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE); getWindow().setStatusBarColor(green); getWindow().setNavigationBarColor(Color.rgb(246, 248, 247)); if (Build.VERSION.SDK_INT >= 26) getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR); showHome(); }
+    @Override public void onCreate(Bundle state) { super.onCreate(state); getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE); getWindow().getDecorView().setFitsSystemWindows(false); getWindow().setStatusBarColor(green); getWindow().setNavigationBarColor(Color.rgb(246, 248, 247)); if (Build.VERSION.SDK_INT >= 26) getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR); showHome(); }
     private int dp(int n) { return (int)(getResources().getDisplayMetrics().density * n); }
     private TextView text(String value, int size, int color, boolean bold) {
         TextView t = new TextView(this); t.setText(value); t.setTextSize(size); t.setTextColor(color);
@@ -34,17 +34,6 @@ public class MainActivity extends Activity {
     private void start(String title) {
         root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(Color.rgb(246, 248, 247));
-        root.setOnApplyWindowInsetsListener((view, insets) -> {
-            int top, bottom;
-            if (Build.VERSION.SDK_INT >= 30) {
-                android.graphics.Insets bars = insets.getInsets(WindowInsets.Type.systemBars());
-                top = bars.top; bottom = bars.bottom;
-            } else {
-                top = insets.getSystemWindowInsetTop(); bottom = insets.getSystemWindowInsetBottom();
-            }
-            view.setPadding(0, top, 0, bottom);
-            return insets;
-        });
         setContentView(root);
         TextView header = text(title, 24, Color.WHITE, true); header.setBackgroundColor(green);
         root.addView(header);
