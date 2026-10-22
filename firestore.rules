@@ -62,6 +62,16 @@ service cloud.firestore {
         && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.phoneDiscoverable == true;
       allow update, delete: if false;
     }
+    match /notificationTokens/{userId} {
+      allow read: if false;
+      allow create, update: if signedIn()
+        && request.auth.uid == userId
+        && request.resource.data.keys().hasOnly(['token', 'updatedAt'])
+        && request.resource.data.token is string
+        && request.resource.data.token.size() <= 4096
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if signedIn() && request.auth.uid == userId;
+    }
     match /chats/{chatId} {
       allow get: if isMember(chatId);
       allow list: if signedIn() && request.auth.uid in resource.data.memberIds;
