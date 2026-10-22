@@ -1,0 +1,8 @@
+name = "mensajeapp-notificaciones"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+[vars]
+FIREBASE_PROJECT_ID = "mensajeapp-73577"
+
+# Secret: FIREBASE_SERVICE_ACCOUNT_JSON (set with 'npx wrangler secret put')
