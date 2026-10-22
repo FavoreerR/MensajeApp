@@ -4,38 +4,49 @@ service cloud.firestore {
     function signedIn() {
       return request.auth != null;
     }
-    function member(chatId) {
+    function isMember(chatId) {
       return signedIn()
         && exists(/databases/$(database)/documents/chats/$(chatId))
         && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.memberIds;
     }
-    match /users/{userId} {
-      allow get: if signedIn();
-      allow list: if false;
-      allow create, update: if signedIn()
-        && request.auth.uid == userId
-        && request.resource.data.keys().hasOnly(['displayName', 'username', 'avatar', 'phone', 'phoneDiscoverable', 'createdAt'])
-        && request.resource.data.keys().hasAll(['displayName', 'username', 'avatar', 'phone', 'phoneDiscoverable', 'createdAt'])
+    function validProfile() {
+      return request.resource.data.keys().hasOnly([
+          'displayName', 'username', 'avatar', 'phone',
+          'phoneDiscoverable', 'createdAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'displayName', 'username', 'avatar', 'phone',
+          'phoneDiscoverable', 'createdAt'
+        ])
         && request.resource.data.displayName is string
         && request.resource.data.displayName.size() >= 2
         && request.resource.data.displayName.size() <= 40
         && request.resource.data.username is string
-        && request.resource.data.username.matches('^[a-z0-9_]{3,20}$')
+        && request.resource.data.username.matches('[a-z0-9_]{3,20}')
         && request.resource.data.avatar is string
         && request.resource.data.avatar.size() <= 150000
         && request.resource.data.phone is string
-        && (request.resource.data.phone == '' || request.resource.data.phone.matches('^\\+[1-9][0-9]{7,14}$'))
-        && request.resource.data.phoneDiscoverable is bool
-        && (!request.resource.data.phoneDiscoverable || request.resource.data.phone != '')
-        && (resource == null || request.resource.data.username == resource.data.username)
-        && (resource != null || request.resource.data.createdAt == request.time);
+        && request.resource.data.phone.size() <= 16
+        && request.resource.data.phoneDiscoverable is bool;
+    }
+    match /users/{userId} {
+      allow get: if signedIn();
+      allow list: if false;
+      allow create: if signedIn()
+        && request.auth.uid == userId
+        && validProfile()
+        && request.resource.data.createdAt == request.time;
+      allow update: if signedIn()
+        && request.auth.uid == userId
+        && validProfile()
+        && request.resource.data.username == resource.data.username
+        && request.resource.data.createdAt == resource.data.createdAt;
       allow delete: if false;
     }
     match /usernames/{username} {
       allow get: if signedIn();
       allow list: if false;
       allow create: if signedIn()
-        && username.matches('^[a-z0-9_]{3,20}$')
         && request.resource.data.keys().hasOnly(['uid'])
         && request.resource.data.uid == request.auth.uid
         && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.username == username;
@@ -45,7 +56,6 @@ service cloud.firestore {
       allow get: if signedIn();
       allow list: if false;
       allow create: if signedIn()
-        && number.matches('^\\+[1-9][0-9]{7,14}$')
         && request.resource.data.keys().hasOnly(['uid'])
         && request.resource.data.uid == request.auth.uid
         && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.phone == number
@@ -53,7 +63,7 @@ service cloud.firestore {
       allow update, delete: if false;
     }
     match /chats/{chatId} {
-      allow get: if member(chatId);
+      allow get: if isMember(chatId);
       allow list: if signedIn() && request.auth.uid in resource.data.memberIds;
       allow create: if signedIn()
         && request.resource.data.keys().hasOnly(['memberIds', 'createdAt'])
@@ -67,8 +77,8 @@ service cloud.firestore {
         && request.resource.data.createdAt == request.time;
       allow update, delete: if false;
       match /messages/{messageId} {
-        allow read: if member(chatId);
-        allow create: if member(chatId)
+        allow read: if isMember(chatId);
+        allow create: if isMember(chatId)
           && request.resource.data.keys().hasOnly(['senderId', 'text', 'createdAt'])
           && request.resource.data.senderId == request.auth.uid
           && request.resource.data.text is string
