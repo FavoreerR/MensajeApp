@@ -16,11 +16,31 @@ service cloud.firestore {
         && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.memberIds;
     }
     match /users/{userId} {
-      allow get: if signedIn() && request.auth.uid == userId;
+      allow get: if signedIn();
       allow list: if false;
       allow create, update: if signedIn() && request.auth.uid == userId
-        && request.resource.data.keys().hasOnly(['displayName', 'createdAt']);
-      allow delete: if signedIn() && request.auth.uid == userId;
+        && request.resource.data.keys().hasOnly(['displayName', 'username', 'avatar', 'createdAt'])
+        && request.resource.data.keys().hasAll(['displayName', 'username', 'avatar', 'createdAt'])
+        && request.resource.data.displayName is string
+        && request.resource.data.displayName.size() >= 2
+        && request.resource.data.displayName.size() <= 40
+        && request.resource.data.username is string
+        && request.resource.data.username.matches('^[a-z0-9_]{3,20}$')
+        && request.resource.data.avatar is string
+        && request.resource.data.avatar.size() <= 150000
+        && (resource == null || request.resource.data.username == resource.data.username)
+        && (resource != null || request.resource.data.createdAt == request.time);
+      allow delete: if false;
+    }
+    match /usernames/{username} {
+      allow get: if signedIn();
+      allow list: if false;
+      allow create: if signedIn()
+        && username.matches('^[a-z0-9_]{3,20}$')
+        && request.resource.data.keys().hasOnly(['uid'])
+        && request.resource.data.uid == request.auth.uid
+        && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.username == username;
+      allow update, delete: if false;
     }
     match /chats/{chatId} {
       allow get, list: if member(chatId);
