@@ -289,7 +289,7 @@ public class MainActivity extends Activity {
         FirebaseUser me = auth.getCurrentUser();
         if (me == null) { showEmailLogin(); return; }
         start("Buscar contacto");
-        root.addView(text("Escribe el nombre de usuario de la otra persona, por ejemplo @amigo123.", 15, Color.DKGRAY, false));
+        root.addView(text("Busca por el @usuario exacto, no por el nombre visible. Ejemplo: @amigo123. La otra persona debe guardar su perfil primero.", 15, Color.DKGRAY, false));
         EditText peer = new EditText(this); peer.setHint("@nombredeusuario"); peer.setSingleLine(true); root.addView(peer);
         TextView status = text("", 13, Color.GRAY, false); root.addView(status);
         Button go = new Button(this); go.setText("Buscar e iniciar chat"); root.addView(go);
@@ -298,8 +298,11 @@ public class MainActivity extends Activity {
             if (!handle.matches("[a-z0-9_]{3,20}")) { peer.setError("Usa de 3 a 20 letras, números o _"); return; }
             go.setEnabled(false); status.setText("Buscando contacto...");
             db.collection("usernames").document(handle).get().addOnCompleteListener(found -> {
-                if (!found.isSuccessful() || !found.getResult().exists()) {
-                    go.setEnabled(true); status.setText("No encontramos ese usuario."); return;
+                if (!found.isSuccessful()) {
+                    go.setEnabled(true); status.setText("Error de Firebase: " + (found.getException() == null ? "comprueba las reglas de Firestore" : found.getException().getLocalizedMessage())); return;
+                }
+                if (!found.getResult().exists()) {
+                    go.setEnabled(true); status.setText("No existe @" + handle + ". Pide al contacto que entre a Editar perfil y foto y pulse Guardar perfil."); return;
                 }
                 String other = found.getResult().getString("uid");
                 if (other == null || other.equals(me.getUid())) {
