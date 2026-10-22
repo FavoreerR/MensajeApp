@@ -297,7 +297,7 @@ public class MainActivity extends Activity {
             String query = peer.getText().toString().trim().replace(" ", "").replace("-", "");
             boolean byPhone = query.startsWith("+");
             String handle = query.toLowerCase(java.util.Locale.ROOT).replaceFirst("^@", "");
-            if (byPhone ? !query.matches("^\\\\+[1-9][0-9]{7,14}$") : !handle.matches("[a-z0-9_]{3,20}")) { peer.setError("Ingresa +56912345678 o @usuario"); return; }
+            if (byPhone ? !query.matches("^\\+[1-9][0-9]{7,14}$") : !handle.matches("[a-z0-9_]{3,20}")) { peer.setError("Ingresa +56912345678 o @usuario"); return; }
             go.setEnabled(false); status.setText("Buscando contacto...");
             db.collection(byPhone ? "phoneDirectory" : "usernames").document(byPhone ? query : handle).get().addOnCompleteListener(found -> {
                 if (!found.isSuccessful()) {
@@ -378,7 +378,7 @@ public class MainActivity extends Activity {
             if (name.length() < 2 || name.length() > 40) { display.setError("Entre 2 y 40 caracteres"); return; }
             if (!username.matches("[a-z0-9_]{3,20}")) { handle.setError("Entre 3 y 20 letras, números o _"); return; }
             String number = phone.getText().toString().replace(" ", "").replace("-", "").trim();
-            if (!number.isEmpty() && !number.matches("^\\\\+[1-9][0-9]{7,14}$")) { phone.setError("Usa el formato internacional, por ejemplo +56912345678"); return; }
+            if (!number.isEmpty() && !number.matches("^\\+[1-9][0-9]{7,14}$")) { phone.setError("Usa el formato internacional, por ejemplo +56912345678"); return; }
             boolean searchable = discoverable.isChecked() && !number.isEmpty();
             save.setEnabled(false);
             db.runTransaction(transaction -> {
