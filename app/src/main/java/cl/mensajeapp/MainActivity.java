@@ -73,10 +73,10 @@ public class MainActivity extends Activity {
         root.addView(text("Conversaciones", 21, Color.DKGRAY, true));
         FirebaseUser signedUser = auth.getCurrentUser();
         if (signedUser == null) {
-            Button login = new Button(this); login.setText("Acceder con mi número de teléfono");
-            root.addView(login); login.setOnClickListener(v -> showPhoneLogin());
+            Button login = new Button(this); login.setText("Acceder gratis con correo electrónico");
+            root.addView(login); login.setOnClickListener(v -> showEmailLogin());
         } else {
-            root.addView(text("Número verificado: " + signedUser.getPhoneNumber(), 14, green, true));
+            root.addView(text("Sesión: " + (signedUser.getEmail() != null ? signedUser.getEmail() : "Usuario registrado"), 14, green, true));
             root.addView(text("Tu código de usuario: " + signedUser.getUid(), 12, Color.DKGRAY, false));
             Button newChat = new Button(this); newChat.setText("Nuevo chat entre teléfonos"); root.addView(newChat);
             newChat.setOnClickListener(v -> showNewChat());
@@ -91,6 +91,36 @@ public class MainActivity extends Activity {
         root.addView(text("Para conversar, comparte tu código de usuario con alguien de confianza que también tenga MensajeApp.", 14, Color.GRAY, false));
     }
 
+    private void showEmailLogin() {
+        start("Acceso gratis");
+        root.addView(text("Regístrate o inicia sesión con tu correo y contraseña. No se envían SMS.", 16, Color.DKGRAY, false));
+        EditText email = new EditText(this); email.setHint("Correo electrónico");
+        email.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);
+        email.setSingleLine(true); root.addView(email);
+        EditText password = new EditText(this); password.setHint("Contraseña (mínimo 6 caracteres)");
+        password.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        password.setSingleLine(true); root.addView(password);
+        TextView status = text("", 14, Color.GRAY, false); root.addView(status);
+        Button signIn = new Button(this); signIn.setText("Iniciar sesión"); root.addView(signIn);
+        Button register = new Button(this); register.setText("Crear cuenta gratis"); root.addView(register);
+        View.OnClickListener action = v -> {
+            String address = email.getText().toString().trim();
+            String secret = password.getText().toString();
+            if (!android.util.Patterns.EMAIL_ADDRESS.matcher(address).matches()) { email.setError("Correo no válido"); return; }
+            if (secret.length() < 6) { password.setError("Mínimo 6 caracteres"); return; }
+            signIn.setEnabled(false); register.setEnabled(false); status.setText("Conectando...");
+            com.google.android.gms.tasks.Task<com.google.firebase.auth.AuthResult> task =
+                v == register ? auth.createUserWithEmailAndPassword(address, secret)
+                              : auth.signInWithEmailAndPassword(address, secret);
+            task.addOnCompleteListener(this, result -> {
+                if (result.isSuccessful()) showHome();
+                else { signIn.setEnabled(true); register.setEnabled(true);
+                    status.setText("No se pudo acceder: " + (result.getException() == null ? "Error desconocido" : result.getException().getLocalizedMessage())); }
+            });
+        };
+        signIn.setOnClickListener(action); register.setOnClickListener(action);
+        Button back = new Button(this); back.setText("Volver"); root.addView(back); back.setOnClickListener(v -> showHome());
+    }
     private void showPhoneLogin() {
         start("Acceso con teléfono");
         root.addView(text("Ingresa tu número con código de país. Ejemplo: +56912345678", 16, Color.DKGRAY, false));
@@ -208,7 +238,7 @@ public class MainActivity extends Activity {
     }
     private void showNewChat() {
         FirebaseUser me = auth.getCurrentUser();
-        if (me == null) { showPhoneLogin(); return; }
+        if (me == null) { showEmailLogin(); return; }
         start("Nuevo chat");
         root.addView(text("Pide a la otra persona su código de usuario de MensajeApp. No necesitas compartir tu teléfono.", 15, Color.DKGRAY, false));
         EditText peer = new EditText(this); peer.setHint("Código de usuario del contacto");
