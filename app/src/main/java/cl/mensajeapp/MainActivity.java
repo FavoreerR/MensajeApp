@@ -51,6 +51,7 @@ public class MainActivity extends Activity {
     private FirebaseAuth auth;
     private FirebaseFirestore db;
     private ListenerRegistration liveMessages;
+    private ListenerRegistration liveChats;
     private String verificationId;
     private static final int PICK_AVATAR = 81;
     private ImageView profilePreview;
@@ -65,6 +66,7 @@ public class MainActivity extends Activity {
     }
     private void start(String title) {
         if (liveMessages != null) { liveMessages.remove(); liveMessages = null; }
+        if (liveChats != null) { liveChats.remove(); liveChats = null; }
         root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL);
         root.setBackground(new GradientDrawable(GradientDrawable.Orientation.TL_BR, new int[]{Color.rgb(230, 249, 249), Color.rgb(247, 250, 255), Color.rgb(224, 236, 251)}));
         root.setPadding(dp(10), dp(8), dp(10), dp(8));
@@ -117,27 +119,86 @@ public class MainActivity extends Activity {
     }
     private void showHome() {
         start("MensajeApp");
-        root.addView(text("Conversaciones", 21, Color.DKGRAY, true));
-        FirebaseUser signedUser = auth.getCurrentUser();
-        if (signedUser == null) {
-            Button login = new Button(this); login.setText("Acceder gratis con correo electrónico");
-            root.addView(login); login.setOnClickListener(v -> showEmailLogin());
-        } else {
-            root.addView(text("Sesión: " + (signedUser.getEmail() != null ? signedUser.getEmail() : "Usuario registrado"), 14, green, true));
-            root.addView(text("Tu perfil y nombre de usuario", 18, Color.DKGRAY, true));
-            Button profile = new Button(this); profile.setText("Editar perfil y foto"); root.addView(profile);
-            profile.setOnClickListener(v -> showProfile());
-            Button newChat = new Button(this); newChat.setText("Nuevo chat entre teléfonos"); root.addView(newChat);
-            newChat.setOnClickListener(v -> showNewChat());
-            Button myChats = new Button(this); myChats.setText("Mis conversaciones"); root.addView(myChats);
-            myChats.setOnClickListener(v -> showSavedChats());
-            Button logout = new Button(this); logout.setText("Cerrar sesión"); root.addView(logout);
-            logout.setOnClickListener(v -> { auth.signOut(); showHome(); });
+        FirebaseUser me = auth.getCurrentUser();
+        if (me == null) {
+            root.addView(text("Tus conversaciones, en un solo lugar", 21, Color.DKGRAY, true));
+            root.addView(text("Inicia sesión para comunicarte gratis por Internet.", 15, Color.GRAY, false));
+            Button login = new Button(this); login.setText("Entrar o crear cuenta"); root.addView(login);
+            login.setOnClickListener(v -> showEmailLogin());
+            return;
         }
-        root.addView(text("Busca contactos por su @usuario. Tus conversaciones se sincronizan por Internet.", 14, Color.GRAY, false));
-        Button sample = new Button(this); sample.setText("Chat de demostración (" + load().length() + ")");
-        root.addView(sample); sample.setOnClickListener(v -> showChat());
-        root.addView(text("Para conversar, comparte tu código de usuario con alguien de confianza que también tenga MensajeApp.", 14, Color.GRAY, false));
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL); top.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title = text("Chats", 28, Color.rgb(16, 44, 51), true);
+        top.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
+        Button profile = new Button(this); profile.setText("Mi perfil");
+        top.addView(profile, new LinearLayout.LayoutParams(dp(110), dp(50)));
+        root.addView(top);
+        profile.setOnClickListener(v -> showProfile());
+
+        Button newChat = new Button(this); newChat.setText("＋  Nuevo mensaje"); root.addView(newChat);
+        newChat.setOnClickListener(v -> showNewChat());
+
+        TextView subtitle = text("Conversaciones recientes", 17, Color.DKGRAY, true);
+        root.addView(subtitle);
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout list = new LinearLayout(this); list.setOrientation(LinearLayout.VERTICAL);
+        scroll.addView(list);
+        root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        list.addView(text("Buscando tus conversaciones...", 14, Color.GRAY, false));
+        liveChats = db.collection("chats")
+            .whereArrayContains("memberIds", me.getUid())
+            .addSnapshotListener((snapshot, error) -> {
+                if (root == null || list.getParent() != scroll) return;
+                list.removeAllViews();
+                if (error != null) {
+                    list.addView(text("No se pudieron cargar los chats: " + error.getLocalizedMessage(), 14, Color.GRAY, false));
+                    return;
+                }
+                if (snapshot == null || snapshot.isEmpty()) {
+                    list.addView(text("Todavía no tienes conversaciones. Pulsa Nuevo mensaje para empezar.", 15, Color.GRAY, false));
+                    return;
+                }
+                for (DocumentSnapshot chatDoc : snapshot.getDocuments()) {
+                    java.util.List<String> members = (java.util.List<String>) chatDoc.get("memberIds");
+                    if (members == null || members.size() != 2) continue;
+                    String other = members.get(0).equals(me.getUid()) ? members.get(1) : members.get(0);
+                    String chatId = chatDoc.getId();
+                    rememberChat(chatId, other);
+                    LinearLayout item = new LinearLayout(this);
+                    item.setOrientation(LinearLayout.HORIZONTAL); item.setGravity(Gravity.CENTER_VERTICAL);
+                    item.setPadding(dp(12), dp(12), dp(12), dp(12));
+                    GradientDrawable background = new GradientDrawable();
+                    background.setColor(Color.WHITE); background.setCornerRadius(dp(16));
+                    item.setBackground(background);
+                    LinearLayout.LayoutParams itemParams = new LinearLayout.LayoutParams(-1, dp(82));
+                    itemParams.setMargins(dp(6), dp(4), dp(6), dp(4));
+                    list.addView(item, itemParams);
+                    TextView avatar = text("●", 26, green, true);
+                    item.addView(avatar);
+                    LinearLayout detail = new LinearLayout(this); detail.setOrientation(LinearLayout.VERTICAL);
+                    item.addView(detail, new LinearLayout.LayoutParams(0, -2, 1));
+                    TextView name = text("Contacto", 17, Color.DKGRAY, true); detail.addView(name);
+                    TextView preview = text("Toca para abrir la conversación", 12, Color.GRAY, false); detail.addView(preview);
+                    db.collection("users").document(other).get().addOnSuccessListener(userDoc -> {
+                        String displayName = userDoc.getString("displayName");
+                        String username = userDoc.getString("username");
+                        if (displayName != null && !displayName.isEmpty()) name.setText(displayName);
+                        else if (username != null) name.setText("@" + username);
+                    });
+                    db.collection("chats").document(chatId).collection("messages")
+                        .orderBy("createdAt", Query.Direction.DESCENDING).limit(1).get()
+                        .addOnSuccessListener(recent -> {
+                            if (!recent.isEmpty()) {
+                                String last = recent.getDocuments().get(0).getString("text");
+                                if (last != null) preview.setText(last.length() > 48 ? last.substring(0, 48) + "…" : last);
+                            }
+                        });
+                    item.setOnClickListener(v -> showRemoteChat(chatId, other));
+                }
+            });
+        Button logout = new Button(this); logout.setText("Cerrar sesión"); root.addView(logout);
+        logout.setOnClickListener(v -> { auth.signOut(); showHome(); });
     }
 
     private void showEmailLogin() {
@@ -323,7 +384,11 @@ public class MainActivity extends Activity {
                     })
                     .addOnFailureListener(error -> {
                         go.setEnabled(true);
-                        status.setText("No se pudo crear el chat: " + error.getLocalizedMessage());
+                        db.collection("chats").document(id).get().addOnCompleteListener(existing -> {
+                            if (existing.isSuccessful() && existing.getResult().exists()) {
+                                rememberChat(id, other); showRemoteChat(id, other);
+                            } else status.setText("No se pudo abrir el chat: " + error.getLocalizedMessage());
+                        });
                     });
             });
         });
