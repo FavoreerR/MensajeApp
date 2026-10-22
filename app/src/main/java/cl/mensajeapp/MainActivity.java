@@ -289,20 +289,22 @@ public class MainActivity extends Activity {
         FirebaseUser me = auth.getCurrentUser();
         if (me == null) { showEmailLogin(); return; }
         start("Buscar contacto");
-        root.addView(text("Busca por el @usuario exacto, no por el nombre visible. Ejemplo: @amigo123. La otra persona debe guardar su perfil primero.", 15, Color.DKGRAY, false));
-        EditText peer = new EditText(this); peer.setHint("@nombredeusuario"); peer.setSingleLine(true); root.addView(peer);
+        root.addView(text("Busca por número de teléfono con código de país (+56...) o por @usuario. Solo aparecerán teléfonos que sus dueños hayan decidido compartir.", 15, Color.DKGRAY, false));
+        EditText peer = new EditText(this); peer.setHint("+56912345678 o @usuario"); peer.setSingleLine(true); root.addView(peer);
         TextView status = text("", 13, Color.GRAY, false); root.addView(status);
         Button go = new Button(this); go.setText("Buscar e iniciar chat"); root.addView(go);
         go.setOnClickListener(v -> {
-            String handle = peer.getText().toString().trim().toLowerCase(java.util.Locale.ROOT).replaceFirst("^@", "");
-            if (!handle.matches("[a-z0-9_]{3,20}")) { peer.setError("Usa de 3 a 20 letras, números o _"); return; }
+            String query = peer.getText().toString().trim().replace(" ", "").replace("-", "");
+            boolean byPhone = query.startsWith("+");
+            String handle = query.toLowerCase(java.util.Locale.ROOT).replaceFirst("^@", "");
+            if (byPhone ? !query.matches("^\\\\+[1-9][0-9]{7,14}$") : !handle.matches("[a-z0-9_]{3,20}")) { peer.setError("Ingresa +56912345678 o @usuario"); return; }
             go.setEnabled(false); status.setText("Buscando contacto...");
-            db.collection("usernames").document(handle).get().addOnCompleteListener(found -> {
+            db.collection(byPhone ? "phoneDirectory" : "usernames").document(byPhone ? query : handle).get().addOnCompleteListener(found -> {
                 if (!found.isSuccessful()) {
                     go.setEnabled(true); status.setText("Error de Firebase: " + (found.getException() == null ? "comprueba las reglas de Firestore" : found.getException().getLocalizedMessage())); return;
                 }
                 if (!found.getResult().exists()) {
-                    go.setEnabled(true); status.setText("No existe @" + handle + ". Pide al contacto que entre a Editar perfil y foto y pulse Guardar perfil."); return;
+                    go.setEnabled(true); status.setText("No encontramos ese contacto. Debe guardar su teléfono en el perfil y permitir que lo encuentren."); return;
                 }
                 String other = found.getResult().getString("uid");
                 if (other == null || other.equals(me.getUid())) {
@@ -341,7 +343,7 @@ public class MainActivity extends Activity {
         FirebaseUser me = auth.getCurrentUser();
         if (me == null) { showEmailLogin(); return; }
         start("Mi perfil");
-        root.addView(text("Tu foto y nombre serán visibles para quienes conozcan tu @usuario.", 14, Color.DKGRAY, false));
+        root.addView(text("Agrega tu nombre, correo y teléfono. Puedes elegir si otros usuarios podrán encontrarte por número.", 14, Color.DKGRAY, false));
         profilePreview = avatarView(pendingAvatar);
         LinearLayout.LayoutParams photoParams = new LinearLayout.LayoutParams(dp(104), dp(104));
         photoParams.setMargins(dp(22), dp(10), dp(22), dp(10)); root.addView(profilePreview, photoParams);
@@ -352,11 +354,16 @@ public class MainActivity extends Activity {
         });
         EditText display = new EditText(this); display.setHint("Tu nombre visible"); root.addView(display);
         EditText handle = new EditText(this); handle.setHint("Nombre de usuario (sin @)"); root.addView(handle);
+        root.addView(text("Correo de acceso: " + (me.getEmail() == null ? "Sin correo" : me.getEmail()), 14, Color.DKGRAY, false));
+        EditText phone = new EditText(this); phone.setHint("Teléfono, ejemplo +56912345678"); phone.setInputType(InputType.TYPE_CLASS_PHONE); root.addView(phone);
+        android.widget.CheckBox discoverable = new android.widget.CheckBox(this); discoverable.setText("Permitir que me encuentren por teléfono (no verificado)"); root.addView(discoverable);
         TextView status = text("El nombre de usuario se elige una vez y debe ser único.", 13, Color.GRAY, false); root.addView(status);
         Button save = new Button(this); save.setText("Guardar perfil"); root.addView(save);
         db.collection("users").document(me.getUid()).get().addOnSuccessListener(doc -> {
             if (doc.exists()) {
                 display.setText(doc.getString("displayName"));
+                phone.setText(doc.getString("phone"));
+                discoverable.setChecked(Boolean.TRUE.equals(doc.getBoolean("phoneDiscoverable")));
                 String savedHandle = doc.getString("username");
                 if (savedHandle != null) { handle.setText(savedHandle); handle.setEnabled(false); }
                 String encoded = doc.getString("avatar");
@@ -370,6 +377,9 @@ public class MainActivity extends Activity {
             String username = handle.getText().toString().trim().toLowerCase(java.util.Locale.ROOT).replaceFirst("^@", "");
             if (name.length() < 2 || name.length() > 40) { display.setError("Entre 2 y 40 caracteres"); return; }
             if (!username.matches("[a-z0-9_]{3,20}")) { handle.setError("Entre 3 y 20 letras, números o _"); return; }
+            String number = phone.getText().toString().replace(" ", "").replace("-", "").trim();
+            if (!number.isEmpty() && !number.matches("^\\\\+[1-9][0-9]{7,14}$")) { phone.setError("Usa el formato internacional, por ejemplo +56912345678"); return; }
+            boolean searchable = discoverable.isChecked() && !number.isEmpty();
             save.setEnabled(false);
             db.runTransaction(transaction -> {
                 com.google.firebase.firestore.DocumentReference profile = db.collection("users").document(me.getUid());
@@ -377,14 +387,21 @@ public class MainActivity extends Activity {
                 com.google.firebase.firestore.DocumentSnapshot existing = transaction.get(profile);
                 String old = existing.getString("username");
                 if (old != null && !old.equals(username)) throw new IllegalStateException("Tu @usuario no se puede cambiar todavía");
+                com.google.firebase.firestore.DocumentReference phoneRef = searchable ? db.collection("phoneDirectory").document(number) : null;
+                com.google.firebase.firestore.DocumentSnapshot claimedPhone = phoneRef == null ? null : transaction.get(phoneRef);
                 com.google.firebase.firestore.DocumentSnapshot claimed = transaction.get(alias);
                 if (claimed.exists() && !me.getUid().equals(claimed.getString("uid"))) throw new IllegalStateException("Ese @usuario ya está ocupado");
+                if (claimedPhone != null && claimedPhone.exists() && !me.getUid().equals(claimedPhone.getString("uid"))) throw new IllegalStateException("Ese número ya está registrado para búsquedas");
+                String oldPhone = existing.getString("phone");
+                if (oldPhone != null && !oldPhone.isEmpty() && !oldPhone.equals(number)) throw new IllegalStateException("El número registrado no se puede cambiar todavía");
                 java.util.Map<String,Object> data = new java.util.HashMap<>();
                 data.put("displayName", name); data.put("username", username);
                 data.put("avatar", pendingAvatar);
+                data.put("phone", number); data.put("phoneDiscoverable", searchable);
                 if (!existing.exists()) data.put("createdAt", FieldValue.serverTimestamp());
                 transaction.set(profile, data, com.google.firebase.firestore.SetOptions.merge());
                 if (!claimed.exists()) transaction.set(alias, java.util.Collections.singletonMap("uid", me.getUid()));
+                if (phoneRef != null && (claimedPhone == null || !claimedPhone.exists())) transaction.set(phoneRef, java.util.Collections.singletonMap("uid", me.getUid()));
                 return null;
             }).addOnSuccessListener(ok -> { pendingAvatar = ""; Toast.makeText(this, "Perfil guardado", Toast.LENGTH_SHORT).show(); showHome(); })
               .addOnFailureListener(e -> { save.setEnabled(true); status.setText("No se pudo guardar: " + e.getLocalizedMessage()); });
