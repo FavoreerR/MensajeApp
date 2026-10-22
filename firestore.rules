@@ -1,27 +1,36 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function signedIn() { return request.auth != null; }
+    function signedIn() {
+      return request.auth != null;
+    }
+    function validMembers(ids) {
+      return ids is list
+        && ids.size() == 2
+        && ids[0] is string && ids[1] is string
+        && ids[0] != ids[1];
+    }
     function member(chatId) {
       return signedIn()
         && exists(/databases/$(database)/documents/chats/$(chatId))
         && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.memberIds;
     }
     match /users/{userId} {
-      allow read: if signedIn() && request.auth.uid == userId;
+      allow get: if signedIn() && request.auth.uid == userId;
+      allow list: if false;
       allow create, update: if signedIn() && request.auth.uid == userId
         && request.resource.data.keys().hasOnly(['displayName', 'createdAt']);
       allow delete: if signedIn() && request.auth.uid == userId;
     }
     match /chats/{chatId} {
-      allow read: if member(chatId);
+      allow get, list: if member(chatId);
       allow create: if signedIn()
         && request.resource.data.keys().hasOnly(['memberIds', 'createdAt'])
-        && request.resource.data.memberIds is list
-        && request.resource.data.memberIds.size() == 2
+        && validMembers(request.resource.data.memberIds)
         && request.auth.uid in request.resource.data.memberIds
-        && request.resource.data.memberIds[0] is string
-        && request.resource.data.memberIds[1] is string;
+        && chatId == request.resource.data.memberIds[0] + '_' + request.resource.data.memberIds[1]
+        && request.resource.data.memberIds[0] < request.resource.data.memberIds[1]
+        && request.resource.data.createdAt == request.time;
       allow update, delete: if false;
       match /messages/{messageId} {
         allow read: if member(chatId);
