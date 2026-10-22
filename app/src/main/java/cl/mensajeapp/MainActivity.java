@@ -25,6 +25,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 import android.text.InputType;
 import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.messaging.FirebaseMessaging;
 import com.google.firebase.auth.FirebaseUser;
 import com.google.firebase.auth.PhoneAuthCredential;
 import com.google.firebase.auth.PhoneAuthOptions;
@@ -57,7 +58,24 @@ public class MainActivity extends Activity {
     private ImageView profilePreview;
     private String pendingAvatar = "";
     private PhoneAuthProvider.ForceResendingToken resendToken;
-    @Override public void onCreate(Bundle state) { super.onCreate(state); getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE); getWindow().getDecorView().setFitsSystemWindows(false); getWindow().setStatusBarColor(green); getWindow().setNavigationBarColor(Color.rgb(246, 248, 247)); if (Build.VERSION.SDK_INT >= 26) getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR); auth = FirebaseAuth.getInstance(); db = FirebaseFirestore.getInstance(); showHome(); }
+    @Override public void onCreate(Bundle state) { super.onCreate(state); getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE); getWindow().getDecorView().setFitsSystemWindows(false); getWindow().setStatusBarColor(green); getWindow().setNavigationBarColor(Color.rgb(246, 248, 247)); if (Build.VERSION.SDK_INT >= 26) getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR); auth = FirebaseAuth.getInstance(); db = FirebaseFirestore.getInstance(); requestNotificationPermission(); registerPushToken(); showHome(); }
+    private void requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission("android.permission.POST_NOTIFICATIONS") != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 101);
+        }
+    }
+    private void registerPushToken() {
+        FirebaseUser user = auth.getCurrentUser();
+        if (user == null) return;
+        String uid = user.getUid();
+        FirebaseMessaging.getInstance().getToken().addOnSuccessListener(token -> {
+            java.util.Map<String,Object> data = new java.util.HashMap<>();
+            data.put("token", token);
+            data.put("updatedAt", FieldValue.serverTimestamp());
+            db.collection("notificationTokens").document(uid).set(data);
+        });
+    }
     private int dp(int n) { return (int)(getResources().getDisplayMetrics().density * n); }
     private TextView text(String value, int size, int color, boolean bold) {
         TextView t = new TextView(this); t.setText(value); t.setTextSize(size); t.setTextColor(color);
@@ -223,7 +241,7 @@ public class MainActivity extends Activity {
                 v == register ? auth.createUserWithEmailAndPassword(address, secret)
                               : auth.signInWithEmailAndPassword(address, secret);
             task.addOnCompleteListener(this, result -> {
-                if (result.isSuccessful()) showHome();
+                if (result.isSuccessful()) { registerPushToken(); showHome(); }
                 else { signIn.setEnabled(true); register.setEnabled(true);
                     status.setText("No se pudo acceder: " + (result.getException() == null ? "Error desconocido" : result.getException().getLocalizedMessage())); }
             });
