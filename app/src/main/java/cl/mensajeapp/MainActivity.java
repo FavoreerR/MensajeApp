@@ -6,6 +6,10 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.view.Gravity;
 import android.view.View;
+import android.view.WindowInsets;
+import android.os.Build;
+import android.view.WindowManager;
+import android.graphics.drawable.GradientDrawable;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -20,7 +24,7 @@ public class MainActivity extends Activity {
     private LinearLayout root;
     private final int green = Color.rgb(10, 125, 99);
     private static final String KEY = "demo_messages";
-    @Override public void onCreate(Bundle state) { super.onCreate(state); showHome(); }
+    @Override public void onCreate(Bundle state) { super.onCreate(state); getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE); getWindow().setStatusBarColor(green); getWindow().setNavigationBarColor(Color.rgb(246, 248, 247)); if (Build.VERSION.SDK_INT >= 26) getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR); showHome(); }
     private int dp(int n) { return (int)(getResources().getDisplayMetrics().density * n); }
     private TextView text(String value, int size, int color, boolean bold) {
         TextView t = new TextView(this); t.setText(value); t.setTextSize(size); t.setTextColor(color);
@@ -29,7 +33,19 @@ public class MainActivity extends Activity {
     }
     private void start(String title) {
         root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(Color.rgb(246, 248, 247)); setContentView(root);
+        root.setBackgroundColor(Color.rgb(246, 248, 247));
+        root.setOnApplyWindowInsetsListener((view, insets) -> {
+            int top, bottom;
+            if (Build.VERSION.SDK_INT >= 30) {
+                android.graphics.Insets bars = insets.getInsets(WindowInsets.Type.systemBars());
+                top = bars.top; bottom = bars.bottom;
+            } else {
+                top = insets.getSystemWindowInsetTop(); bottom = insets.getSystemWindowInsetBottom();
+            }
+            view.setPadding(0, top, 0, bottom);
+            return insets;
+        });
+        setContentView(root);
         TextView header = text(title, 24, Color.WHITE, true); header.setBackgroundColor(green);
         root.addView(header);
     }
@@ -59,9 +75,19 @@ public class MainActivity extends Activity {
         JSONArray history = load();
         for (int i = 0; i < history.length(); i++) addBubble(messages, history.optString(i));
         LinearLayout composer = new LinearLayout(this); composer.setOrientation(LinearLayout.HORIZONTAL);
-        EditText entry = new EditText(this); entry.setSingleLine(false); entry.setMaxLines(4); entry.setHint("Mensaje");
-        composer.addView(entry, new LinearLayout.LayoutParams(0, -2, 1));
-        Button send = new Button(this); send.setText("Enviar"); composer.addView(send); root.addView(composer);
+        composer.setGravity(Gravity.CENTER_VERTICAL);
+        composer.setPadding(dp(12), dp(8), dp(12), dp(8));
+        composer.setBackgroundColor(Color.WHITE);
+        EditText entry = new EditText(this); entry.setSingleLine(false); entry.setMaxLines(4); entry.setHint("Escribe un mensaje");
+        entry.setTextSize(16); entry.setPadding(dp(16), dp(10), dp(16), dp(10));
+        GradientDrawable field = new GradientDrawable(); field.setColor(Color.rgb(246, 248, 247)); field.setCornerRadius(dp(24));
+        entry.setBackground(field);
+        LinearLayout.LayoutParams entryParams = new LinearLayout.LayoutParams(0, -2, 1);
+        entryParams.setMargins(0, 0, dp(8), 0); composer.addView(entry, entryParams);
+        Button send = new Button(this); send.setText("Enviar"); send.setTextColor(Color.WHITE);
+        send.setAllCaps(false); send.setBackgroundTintList(android.content.res.ColorStateList.valueOf(green));
+        composer.addView(send, new LinearLayout.LayoutParams(dp(100), dp(52)));
+        root.addView(composer, new LinearLayout.LayoutParams(-1, -2));
         send.setOnClickListener(v -> {
             String msg = entry.getText().toString().trim();
             if (!msg.isEmpty()) {
