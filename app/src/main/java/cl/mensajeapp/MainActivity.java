@@ -15,6 +15,15 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
+import android.text.InputType;
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseUser;
+import com.google.firebase.auth.PhoneAuthCredential;
+import com.google.firebase.auth.PhoneAuthOptions;
+import com.google.firebase.auth.PhoneAuthProvider;
+import com.google.firebase.FirebaseException;
+import java.util.concurrent.TimeUnit;
 import org.json.JSONArray;
 import org.json.JSONException;
 import java.text.DateFormat;
@@ -24,7 +33,10 @@ public class MainActivity extends Activity {
     private LinearLayout root;
     private final int green = Color.rgb(10, 125, 99);
     private static final String KEY = "demo_messages";
-    @Override public void onCreate(Bundle state) { super.onCreate(state); getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE); getWindow().getDecorView().setFitsSystemWindows(false); getWindow().setStatusBarColor(green); getWindow().setNavigationBarColor(Color.rgb(246, 248, 247)); if (Build.VERSION.SDK_INT >= 26) getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR); showHome(); }
+    private FirebaseAuth auth;
+    private String verificationId;
+    private PhoneAuthProvider.ForceResendingToken resendToken;
+    @Override public void onCreate(Bundle state) { super.onCreate(state); getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE); getWindow().getDecorView().setFitsSystemWindows(false); getWindow().setStatusBarColor(green); getWindow().setNavigationBarColor(Color.rgb(246, 248, 247)); if (Build.VERSION.SDK_INT >= 26) getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR); auth = FirebaseAuth.getInstance(); showHome(); }
     private int dp(int n) { return (int)(getResources().getDisplayMetrics().density * n); }
     private TextView text(String value, int size, int color, boolean bold) {
         TextView t = new TextView(this); t.setText(value); t.setTextSize(size); t.setTextColor(color);
@@ -48,10 +60,90 @@ public class MainActivity extends Activity {
     private void showHome() {
         start("MensajeApp");
         root.addView(text("Conversaciones", 21, Color.DKGRAY, true));
+        FirebaseUser signedUser = auth.getCurrentUser();
+        if (signedUser == null) {
+            Button login = new Button(this); login.setText("Acceder con mi número de teléfono");
+            root.addView(login); login.setOnClickListener(v -> showPhoneLogin());
+        } else {
+            root.addView(text("Número verificado: " + signedUser.getPhoneNumber(), 14, green, true));
+            Button logout = new Button(this); logout.setText("Cerrar sesión"); root.addView(logout);
+            logout.setOnClickListener(v -> { auth.signOut(); showHome(); });
+        }
         root.addView(text("Versión de prueba • mensajes guardados solo en este teléfono", 14, Color.GRAY, false));
         Button sample = new Button(this); sample.setText("Chat de demostración (" + load().length() + ")");
         root.addView(sample); sample.setOnClickListener(v -> showChat());
         root.addView(text("Próximamente: acceso con número, búsqueda de contactos y mensajes entre dispositivos.", 14, Color.GRAY, false));
+    }
+
+    private void showPhoneLogin() {
+        start("Acceso con teléfono");
+        root.addView(text("Ingresa tu número con código de país. Ejemplo: +56912345678", 16, Color.DKGRAY, false));
+        EditText phone = new EditText(this); phone.setHint("+56912345678");
+        phone.setInputType(InputType.TYPE_CLASS_PHONE);
+        phone.setSingleLine(true); phone.setPadding(dp(18), dp(12), dp(18), dp(12));
+        root.addView(phone);
+        Button request = new Button(this); request.setText("Enviar código SMS"); root.addView(request);
+        TextView status = text("Firebase puede requerir verificación de la aplicación y habilitación de SMS.", 13, Color.GRAY, false);
+        root.addView(status);
+        Button back = new Button(this); back.setText("Volver"); root.addView(back);
+        back.setOnClickListener(v -> showHome());
+        request.setOnClickListener(v -> {
+            String number = phone.getText().toString().replace(" ", "").trim();
+            if (!number.matches("^\\+[1-9][0-9]{7,14}$")) {
+                phone.setError("Escribe el número internacional, por ejemplo +56912345678"); return;
+            }
+            request.setEnabled(false);
+            status.setText("Solicitando código de verificación...");
+            PhoneAuthOptions options = PhoneAuthOptions.newBuilder(auth)
+                .setPhoneNumber(number)
+                .setTimeout(60L, TimeUnit.SECONDS)
+                .setActivity(this)
+                .setCallbacks(new PhoneAuthProvider.OnVerificationStateChangedCallbacks() {
+                    @Override public void onVerificationCompleted(PhoneAuthCredential credential) {
+                        signInWithCredential(credential);
+                    }
+                    @Override public void onVerificationFailed(FirebaseException error) {
+                        request.setEnabled(true);
+                        status.setText("No se pudo verificar: " + error.getLocalizedMessage());
+                    }
+                    @Override public void onCodeSent(String id, PhoneAuthProvider.ForceResendingToken token) {
+                        verificationId = id; resendToken = token; showCodeEntry(number);
+                    }
+                }).build();
+            PhoneAuthProvider.verifyPhoneNumber(options);
+        });
+    }
+    private void showCodeEntry(String number) {
+        start("Verificar teléfono");
+        root.addView(text("Introduce el código recibido por SMS en " + number, 16, Color.DKGRAY, false));
+        EditText code = new EditText(this); code.setHint("Código de 6 dígitos");
+        code.setInputType(InputType.TYPE_CLASS_NUMBER);
+        code.setSingleLine(true); code.setPadding(dp(18), dp(12), dp(18), dp(12)); root.addView(code);
+        TextView status = text("", 14, Color.GRAY, false); root.addView(status);
+        Button confirm = new Button(this); confirm.setText("Verificar código"); root.addView(confirm);
+        confirm.setOnClickListener(v -> {
+            String entered = code.getText().toString().trim();
+            if (!entered.matches("[0-9]{6}") || verificationId == null) {
+                code.setError("Introduce los seis dígitos"); return;
+            }
+            confirm.setEnabled(false);
+            status.setText("Verificando...");
+            PhoneAuthCredential credential = PhoneAuthProvider.getCredential(verificationId, entered);
+            auth.signInWithCredential(credential).addOnCompleteListener(this, task -> {
+                if (task.isSuccessful()) showHome();
+                else { confirm.setEnabled(true); status.setText("Código no válido o vencido: " +
+                    (task.getException() == null ? "inténtalo otra vez" : task.getException().getLocalizedMessage())); }
+            });
+        });
+        Button back = new Button(this); back.setText("Cambiar número"); root.addView(back);
+        back.setOnClickListener(v -> showPhoneLogin());
+    }
+    private void signInWithCredential(PhoneAuthCredential credential) {
+        auth.signInWithCredential(credential).addOnCompleteListener(this, task -> {
+            if (task.isSuccessful()) showHome();
+            else Toast.makeText(this, "No se pudo iniciar sesión: " +
+                (task.getException() == null ? "error desconocido" : task.getException().getLocalizedMessage()), Toast.LENGTH_LONG).show();
+        });
     }
     private void showChat() {
         start("MensajeApp • Demo");
