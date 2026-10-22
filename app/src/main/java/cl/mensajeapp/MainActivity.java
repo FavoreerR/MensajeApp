@@ -313,15 +313,18 @@ public class MainActivity extends Activity {
                 String id = chatId(me.getUid(), other);
                 ArrayList<String> ids = new ArrayList<>(Arrays.asList(me.getUid(), other));
                 Collections.sort(ids);
-                db.collection("chats").document(id).get().addOnCompleteListener(task -> {
-                    if (!task.isSuccessful()) { go.setEnabled(true); status.setText("No se pudo consultar el chat."); return; }
-                    if (task.getResult().exists()) { rememberChat(id, other); showRemoteChat(id, other); return; }
-                    java.util.Map<String,Object> data = new java.util.HashMap<>();
-                    data.put("memberIds", ids); data.put("createdAt", FieldValue.serverTimestamp());
-                    db.collection("chats").document(id).set(data).addOnSuccessListener(v2 -> {
-                        rememberChat(id, other); showRemoteChat(id, other);
-                    }).addOnFailureListener(e -> { go.setEnabled(true); status.setText("No se pudo crear: " + e.getLocalizedMessage()); });
-                });
+                java.util.Map<String,Object> data = new java.util.HashMap<>();
+                data.put("memberIds", ids);
+                data.put("createdAt", FieldValue.serverTimestamp());
+                db.collection("chats").document(id).set(data)
+                    .addOnSuccessListener(ok -> {
+                        rememberChat(id, other);
+                        showRemoteChat(id, other);
+                    })
+                    .addOnFailureListener(error -> {
+                        go.setEnabled(true);
+                        status.setText("No se pudo crear el chat: " + error.getLocalizedMessage());
+                    });
             });
         });
         Button back = new Button(this); back.setText("Volver"); root.addView(back); back.setOnClickListener(v -> showHome());
