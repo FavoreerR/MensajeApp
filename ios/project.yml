@@ -1,0 +1,29 @@
+name: MensajeApp
+options:
+  bundleIdPrefix: cl
+settings:
+  base:
+    SWIFT_VERSION: 5.9
+    IPHONEOS_DEPLOYMENT_TARGET: '16.0'
+packages:
+  Firebase:
+    url: https://github.com/firebase/firebase-ios-sdk
+    from: 11.0.0
+targets:
+  MensajeApp:
+    type: application
+    platform: iOS
+    sources: [MensajeApp]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: cl.mensajeapp.ios
+        INFOPLIST_FILE: MensajeApp/Info.plist
+        TARGETED_DEVICE_FAMILY: '1'
+        CODE_SIGN_STYLE: Automatic
+    dependencies:
+      - package: Firebase
+        product: FirebaseAuth
+      - package: Firebase
+        product: FirebaseFirestore
+      - package: Firebase
+        product: FirebaseMessaging
