@@ -1,0 +1,6 @@
+MensageApp.xcodeproj/
+MensajeApp.xcodeproj/
+build/
+*.xcuserstate
+.DS_Store
+MensajeApp/GoogleService-Info.plist
