@@ -143,91 +143,102 @@ public class MainActivity extends Activity {
         getPreferences(MODE_PRIVATE).edit().putString(KEY, messages.toString()).apply();
     }
     private void showHome() {
-        start("MensajeApp");
         FirebaseUser me = auth.getCurrentUser();
-        if (me == null) {
-            root.addView(text("Tus conversaciones, en un solo lugar", 21, Color.DKGRAY, true));
-            root.addView(text("Inicia sesión para comunicarte gratis por Internet.", 15, Color.GRAY, false));
+        if (me == null) { start("MensajeApp"); root.addView(text("Conversa con tus contactos",22,Color.DKGRAY,true));
             Button login = new Button(this); login.setText("Entrar o crear cuenta"); root.addView(login);
-            login.setOnClickListener(v -> showEmailLogin());
-            return;
-        }
-        LinearLayout top = new LinearLayout(this);
-        top.setOrientation(LinearLayout.HORIZONTAL); top.setGravity(Gravity.CENTER_VERTICAL);
-        TextView title = text("Chats", 28, Color.rgb(16, 44, 51), true);
-        top.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
-        Button profile = new Button(this); profile.setText("Mi perfil");
-        top.addView(profile, new LinearLayout.LayoutParams(dp(110), dp(50)));
-        root.addView(top);
-        profile.setOnClickListener(v -> showProfile());
-
-        Button newChat = new Button(this); newChat.setText("＋  Nuevo mensaje"); root.addView(newChat);
-        newChat.setOnClickListener(v -> showNewChat());
-
-        TextView subtitle = text("Conversaciones recientes", 17, Color.DKGRAY, true);
-        root.addView(subtitle);
-        ScrollView scroll = new ScrollView(this);
+            login.setOnClickListener(v -> showEmailLogin()); return; }
+        if (liveMessages != null) { liveMessages.remove(); liveMessages = null; }
+        if (liveChats != null) { liveChats.remove(); liveChats = null; }
+        root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(Color.WHITE); setContentView(root);
+        int dark = Color.rgb(7,94,84);
+        LinearLayout toolbar = new LinearLayout(this); toolbar.setGravity(Gravity.CENTER_VERTICAL);
+        toolbar.setPadding(dp(14),dp(8),dp(10),dp(8)); toolbar.setBackgroundColor(dark);
+        TextView brand = text("MensajeApp",22,Color.WHITE,true);
+        toolbar.addView(brand,new LinearLayout.LayoutParams(0,dp(60),1));
+        TextView settings = text("⋮",28,Color.WHITE,true); toolbar.addView(settings);
+        settings.setOnClickListener(v -> new android.app.AlertDialog.Builder(this)
+            .setItems(new String[]{"Mi perfil","Nuevo chat","Cerrar sesión"},(d,which)->{
+                if(which==0) showProfile(); else if(which==1) showNewChat();
+                else { auth.signOut(); showHome(); }
+            }).show());
+        root.addView(toolbar);
+        LinearLayout tabs = new LinearLayout(this); tabs.setBackgroundColor(dark);
+        TextView chatsTab = text("CHATS",15,Color.WHITE,true);
+        chatsTab.setGravity(Gravity.CENTER);
+        tabs.addView(chatsTab,new LinearLayout.LayoutParams(-1,dp(44)));
+        root.addView(tabs);
+        ScrollView scroll = new ScrollView(this); scroll.setFillViewport(true);
         LinearLayout list = new LinearLayout(this); list.setOrientation(LinearLayout.VERTICAL);
-        scroll.addView(list);
-        root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
-        list.addView(text("Buscando tus conversaciones...", 14, Color.GRAY, false));
-        liveChats = db.collection("chats")
-            .whereArrayContains("memberIds", me.getUid())
-            .addSnapshotListener((snapshot, error) -> {
-                if (root == null || list.getParent() != scroll) return;
+        scroll.addView(list); root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+        list.addView(text("Cargando conversaciones...",15,Color.GRAY,false));
+        LinearLayout bottom = new LinearLayout(this); bottom.setGravity(Gravity.END|Gravity.CENTER_VERTICAL);
+        bottom.setPadding(dp(12),dp(8),dp(18),dp(12)); bottom.setBackgroundColor(Color.WHITE);
+        Button newChat = new Button(this); newChat.setText("✎  Nuevo chat");
+        newChat.setTextColor(Color.WHITE); newChat.setAllCaps(false);
+        GradientDrawable fab = new GradientDrawable(); fab.setColor(Color.rgb(0,168,132)); fab.setCornerRadius(dp(26));
+        newChat.setBackground(fab); newChat.setElevation(dp(4));
+        bottom.addView(newChat,new LinearLayout.LayoutParams(dp(154),dp(52)));
+        root.addView(bottom); newChat.setOnClickListener(v -> showNewChat());
+        liveChats = db.collection("chats").whereArrayContains("memberIds",me.getUid())
+            .addSnapshotListener((snapshot,error)->{
+                if(list.getParent()!=scroll) return;
                 list.removeAllViews();
-                if (error != null) {
-                    list.addView(text("No se pudieron cargar los chats: " + error.getLocalizedMessage(), 14, Color.GRAY, false));
-                    return;
+                if(error!=null) { list.addView(text("Error al cargar chats: "+error.getLocalizedMessage(),14,Color.GRAY,false)); return; }
+                if(snapshot==null || snapshot.isEmpty()) {
+                    list.addView(text("Aún no tienes conversaciones. Pulsa Nuevo chat para comenzar.",16,Color.GRAY,false)); return;
                 }
-                if (snapshot == null || snapshot.isEmpty()) {
-                    list.addView(text("Todavía no tienes conversaciones. Pulsa Nuevo mensaje para empezar.", 15, Color.GRAY, false));
-                    return;
-                }
-                for (DocumentSnapshot chatDoc : snapshot.getDocuments()) {
-                    java.util.List<String> members = (java.util.List<String>) chatDoc.get("memberIds");
-                    if (members == null || members.size() != 2) continue;
-                    String other = members.get(0).equals(me.getUid()) ? members.get(1) : members.get(0);
-                    String chatId = chatDoc.getId();
-                    rememberChat(chatId, other);
-                    LinearLayout item = new LinearLayout(this);
-                    item.setOrientation(LinearLayout.HORIZONTAL); item.setGravity(Gravity.CENTER_VERTICAL);
-                    item.setPadding(dp(12), dp(12), dp(12), dp(12));
-                    GradientDrawable background = new GradientDrawable();
-                    background.setColor(Color.WHITE); background.setCornerRadius(dp(16));
-                    item.setBackground(background);
-                    LinearLayout.LayoutParams itemParams = new LinearLayout.LayoutParams(-1, dp(82));
-                    itemParams.setMargins(dp(6), dp(4), dp(6), dp(4));
-                    list.addView(item, itemParams);
-                    ImageView avatar = avatarView("");
-                    item.addView(avatar, new LinearLayout.LayoutParams(dp(54),dp(54)));
-                    LinearLayout detail = new LinearLayout(this); detail.setOrientation(LinearLayout.VERTICAL);
-                    item.addView(detail, new LinearLayout.LayoutParams(0, -2, 1));
-                    TextView name = text("Contacto", 17, Color.DKGRAY, true); detail.addView(name);
-                    TextView preview = text("Toca para abrir la conversación", 12, Color.GRAY, false); detail.addView(preview);
-                    db.collection("users").document(other).get().addOnSuccessListener(userDoc -> {
-                        String displayName = userDoc.getString("displayName");
-                        String username = userDoc.getString("username");
-                        String photo = userDoc.getString("avatar");
-                        if (photo != null && !photo.isEmpty()) {
-                            try { byte[] raw = Base64.decode(photo, Base64.DEFAULT); avatar.setImageBitmap(BitmapFactory.decodeByteArray(raw,0,raw.length)); } catch (Exception ignored) { }
-                        }
-                        if (displayName != null && !displayName.isEmpty()) name.setText(displayName);
-                        else if (username != null) name.setText("@" + username);
+                for(DocumentSnapshot chatDoc:snapshot.getDocuments()){
+                    java.util.List<String> members=(java.util.List<String>)chatDoc.get("memberIds");
+                    if(members==null || members.size()!=2) continue;
+                    String other=members.get(0).equals(me.getUid())?members.get(1):members.get(0);
+                    String id=chatDoc.getId(); rememberChat(id,other);
+                    LinearLayout item=new LinearLayout(this); item.setGravity(Gravity.CENTER_VERTICAL);
+                    item.setPadding(dp(14),dp(8),dp(12),dp(8));
+                    list.addView(item,new LinearLayout.LayoutParams(-1,dp(84)));
+                    ImageView avatar=avatarView("");
+                    GradientDrawable circle=new GradientDrawable(); circle.setColor(Color.rgb(215,232,226));
+                    circle.setShape(GradientDrawable.OVAL); avatar.setBackground(circle);
+                    avatar.setClipToOutline(true);
+                    item.addView(avatar,new LinearLayout.LayoutParams(dp(54),dp(54)));
+                    LinearLayout details=new LinearLayout(this); details.setOrientation(LinearLayout.VERTICAL);
+                    LinearLayout.LayoutParams detailParams=new LinearLayout.LayoutParams(0,-2,1);
+                    detailParams.setMargins(dp(14),0,0,0); item.addView(details,detailParams);
+                    LinearLayout first=new LinearLayout(this); first.setGravity(Gravity.CENTER_VERTICAL);
+                    details.addView(first);
+                    TextView name=text("Contacto",17,Color.rgb(25,37,40),true);
+                    name.setPadding(0,0,0,0); first.addView(name,new LinearLayout.LayoutParams(0,-2,1));
+                    TextView time=text("",12,Color.GRAY,false); time.setPadding(0,0,0,0); first.addView(time);
+                    TextView preview=text("Toca para abrir el chat",14,Color.GRAY,false);
+                    preview.setSingleLine(true); preview.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                    preview.setPadding(0,dp(5),0,0); details.addView(preview);
+                    db.collection("users").document(other).get().addOnSuccessListener(doc->{
+                        String label=doc.getString("displayName");
+                        if(label!=null&&!label.isEmpty()) name.setText(label);
+                        else if(doc.getString("username")!=null) name.setText("@"+doc.getString("username"));
+                        String photo=doc.getString("avatar");
+                        if(photo!=null&&!photo.isEmpty()) try {
+                            byte[] raw=Base64.decode(photo,Base64.DEFAULT);
+                            avatar.setImageBitmap(BitmapFactory.decodeByteArray(raw,0,raw.length));
+                        } catch(Exception ignored){}
                     });
-                    db.collection("chats").document(chatId).collection("messages")
-                        .orderBy("createdAt", Query.Direction.DESCENDING).limit(1).get()
-                        .addOnSuccessListener(recent -> {
-                            if (!recent.isEmpty()) {
-                                String last = recent.getDocuments().get(0).getString("text");
-                                if (last != null) preview.setText(last.startsWith("AUDIO:") ? "🎤 Mensaje de voz" : (last.length() > 48 ? last.substring(0, 48) + "…" : last));
+                    db.collection("chats").document(id).collection("messages")
+                        .orderBy("createdAt",Query.Direction.DESCENDING).limit(1).get()
+                        .addOnSuccessListener(recent->{
+                            if(!recent.isEmpty()){
+                                DocumentSnapshot lastDoc=recent.getDocuments().get(0);
+                                String last=lastDoc.getString("text");
+                                if(last!=null) preview.setText(last.startsWith("AUDIO:")?"🎤 Audio":last);
+                                java.util.Date date=lastDoc.getDate("createdAt");
+                                if(date!=null) time.setText(new java.text.SimpleDateFormat("HH:mm",java.util.Locale.getDefault()).format(date));
                             }
                         });
-                    item.setOnClickListener(v -> showRemoteChat(chatId, other));
+                    item.setOnClickListener(v->showRemoteChat(id,other));
+                    View line=new View(this); line.setBackgroundColor(Color.rgb(239,242,241));
+                    LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,dp(1)); lp.leftMargin=dp(82);
+                    list.addView(line,lp);
                 }
             });
-        Button logout = new Button(this); logout.setText("Cerrar sesión"); root.addView(logout);
-        logout.setOnClickListener(v -> { auth.signOut(); showHome(); });
     }
 
     private void showEmailLogin() {
