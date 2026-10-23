@@ -564,11 +564,57 @@ public class MainActivity extends Activity {
         ScrollView scroll = new ScrollView(this);
         LinearLayout messages = new LinearLayout(this); messages.setOrientation(LinearLayout.VERTICAL);
         scroll.addView(messages); root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
-        LinearLayout composer = new LinearLayout(this); composer.setPadding(dp(8), dp(8), dp(8), dp(8));
-        EditText entry = new EditText(this); entry.setHint("Mensaje"); entry.setMaxLines(4);
-        composer.addView(entry, new LinearLayout.LayoutParams(0, -2, 1));
-        Button send = new Button(this); send.setText("Enviar"); composer.addView(send);
-        Button voice = new Button(this); voice.setText("🎤"); composer.addView(voice);
+        LinearLayout composer = new LinearLayout(this);
+        composer.setGravity(Gravity.CENTER_VERTICAL);
+        composer.setPadding(dp(8), dp(7), dp(8), dp(7));
+        composer.setBackgroundColor(Color.rgb(247, 247, 247));
+        LinearLayout pill = new LinearLayout(this);
+        pill.setGravity(Gravity.CENTER_VERTICAL);
+        GradientDrawable pillBg = new GradientDrawable();
+        pillBg.setColor(Color.WHITE); pillBg.setCornerRadius(dp(30));
+        pill.setBackground(pillBg);
+        TextView emoji = text("☺", 26, Color.rgb(100, 107, 111), false);
+        emoji.setPadding(dp(12),0,dp(7),0);
+        pill.addView(emoji);
+        EditText entry = new EditText(this);
+        entry.setHint("Mensaje"); entry.setTextSize(17); entry.setMaxLines(4);
+        entry.setMinHeight(dp(48)); entry.setPadding(dp(4),dp(8),dp(4),dp(8));
+        entry.setBackgroundColor(Color.TRANSPARENT);
+        pill.addView(entry,new LinearLayout.LayoutParams(0,-2,1));
+        TextView attach = text("♧",25,Color.rgb(100,107,111),false);
+        attach.setPadding(dp(7),0,dp(7),0); pill.addView(attach);
+        TextView camera = text("▣",25,Color.rgb(100,107,111),false);
+        camera.setPadding(dp(7),0,dp(12),0); pill.addView(camera);
+        composer.addView(pill,new LinearLayout.LayoutParams(0,-2,1));
+        Button voice = new Button(this); voice.setText("🎤"); voice.setTextSize(21);
+        voice.setTextColor(Color.WHITE); voice.setAllCaps(false);
+        GradientDrawable voiceBg = new GradientDrawable();
+        voiceBg.setColor(Color.rgb(198,32,47)); voiceBg.setShape(GradientDrawable.OVAL);
+        voice.setBackground(voiceBg);
+        LinearLayout.LayoutParams micParams = new LinearLayout.LayoutParams(dp(54),dp(54));
+        micParams.setMargins(dp(8),0,0,0); composer.addView(voice,micParams);
+        Button send = new Button(this); send.setText("➤"); send.setTextSize(22);
+        send.setTextColor(Color.WHITE); send.setAllCaps(false);
+        GradientDrawable sendBg = new GradientDrawable();
+        sendBg.setColor(Color.rgb(198,32,47)); sendBg.setShape(GradientDrawable.OVAL);
+        send.setBackground(sendBg);
+        LinearLayout.LayoutParams sendParams = new LinearLayout.LayoutParams(dp(54),dp(54));
+        sendParams.setMargins(dp(8),0,0,0); composer.addView(send,sendParams);
+        send.setVisibility(View.GONE);
+        entry.addTextChangedListener(new android.text.TextWatcher() {
+            public void beforeTextChanged(CharSequence x,int a,int c,int d){}
+            public void onTextChanged(CharSequence x,int a,int before,int count){
+                boolean hasText=x.toString().trim().length()>0;
+                send.setVisibility(hasText?View.VISIBLE:View.GONE);
+                voice.setVisibility(hasText?View.GONE:View.VISIBLE);
+            }
+            public void afterTextChanged(android.text.Editable x){}
+        });
+        emoji.setOnClickListener(v -> { entry.requestFocus();
+            ((android.view.inputmethod.InputMethodManager)getSystemService(INPUT_METHOD_SERVICE))
+                .showSoftInput(entry,android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT); });
+        attach.setOnClickListener(v -> Toast.makeText(this,"Adjuntar archivos: próximamente",Toast.LENGTH_SHORT).show());
+        camera.setOnClickListener(v -> Toast.makeText(this,"Enviar fotos: próximamente",Toast.LENGTH_SHORT).show());
         root.addView(composer);
         voice.setOnClickListener(v -> {
             if (voiceRecorder == null) {
