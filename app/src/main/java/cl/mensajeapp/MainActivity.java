@@ -72,11 +72,17 @@ public class MainActivity extends Activity {
             requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 101);
         }
     }
+    @Override protected void onResume() {
+        super.onResume();
+        if (auth != null && db != null) registerPushToken();
+    }
     private void registerPushToken() {
         FirebaseUser user = auth.getCurrentUser();
         if (user == null) return;
         String uid = user.getUid();
         FirebaseMessaging.getInstance().getToken().addOnSuccessListener(token -> {
+            FirebaseUser current = auth.getCurrentUser();
+            if (current == null || !uid.equals(current.getUid())) return;
             java.util.Map<String,Object> data = new java.util.HashMap<>();
             data.put("token", token);
             data.put("updatedAt", FieldValue.serverTimestamp());
