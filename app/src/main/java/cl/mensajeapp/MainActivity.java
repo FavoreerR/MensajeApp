@@ -59,6 +59,8 @@ public class MainActivity extends Activity {
     private ListenerRegistration liveChats;
     private String verificationId;
     private static final int PICK_AVATAR = 81;
+    private static final int PICK_CHAT_IMAGE = 82;
+    private String imageChatId;
     private ImageView profilePreview;
     private String pendingAvatar = "";
     private MediaRecorder voiceRecorder;
@@ -518,7 +520,23 @@ public class MainActivity extends Activity {
     }
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode != PICK_AVATAR || resultCode != RESULT_OK || data == null || data.getData() == null) return;
+        if (resultCode != RESULT_OK || data == null || data.getData() == null) return;
+        if (requestCode == PICK_CHAT_IMAGE) {
+            if (imageChatId == null || auth.getCurrentUser() == null) return;
+            final String chatId = imageChatId; imageChatId = null;
+            try (InputStream input = getContentResolver().openInputStream(data.getData())) {
+                Bitmap original = BitmapFactory.decodeStream(input); if (original == null) throw new IllegalArgumentException("Imagen inválida");
+                float factor = Math.min(1f, 720f / Math.max(original.getWidth(),original.getHeight()));
+                Bitmap small = Bitmap.createScaledBitmap(original,Math.max(1,(int)(original.getWidth()*factor)),Math.max(1,(int)(original.getHeight()*factor)),true);
+                ByteArrayOutputStream output = new ByteArrayOutputStream(); small.compress(Bitmap.CompressFormat.JPEG,55,output);
+                String encoded = Base64.encodeToString(output.toByteArray(),Base64.NO_WRAP);
+                if (encoded.length()>650000) { Toast.makeText(this,"Foto demasiado grande",Toast.LENGTH_LONG).show(); return; }
+                java.util.Map<String,Object> message = new java.util.HashMap<>(); message.put("senderId",auth.getCurrentUser().getUid()); message.put("text","IMAGE:"+encoded); message.put("createdAt",FieldValue.serverTimestamp());
+                db.collection("chats").document(chatId).collection("messages").add(message).addOnFailureListener(e->Toast.makeText(this,"No se pudo enviar la foto: "+e.getLocalizedMessage(),Toast.LENGTH_LONG).show());
+            } catch(Exception e) { Toast.makeText(this,"No se pudo preparar la foto",Toast.LENGTH_LONG).show(); }
+            return;
+        }
+        if (requestCode != PICK_AVATAR) return;
         try (InputStream input = getContentResolver().openInputStream(data.getData())) {
             Bitmap original = BitmapFactory.decodeStream(input);
             if (original == null) throw new IllegalArgumentException("Imagen no válida");
@@ -568,6 +586,8 @@ public class MainActivity extends Activity {
         EditText entry = new EditText(this); entry.setHint("Mensaje"); entry.setMaxLines(4);
         composer.addView(entry, new LinearLayout.LayoutParams(0, -2, 1));
         Button send = new Button(this); send.setText("Enviar"); composer.addView(send);
+        Button imageButton = new Button(this); imageButton.setText("📷"); composer.addView(imageButton);
+        imageButton.setOnClickListener(v -> { imageChatId = id; Intent pick = new Intent(Intent.ACTION_GET_CONTENT); pick.setType("image/*"); startActivityForResult(pick, PICK_CHAT_IMAGE); });
         Button voice = new Button(this); voice.setText("🎤"); composer.addView(voice);
         root.addView(composer);
         voice.setOnClickListener(v -> {
@@ -621,6 +641,12 @@ public class MainActivity extends Activity {
                     String msg = doc.getString("text");
                     boolean mine = me.getUid().equals(doc.getString("senderId"));
                     if (msg == null) continue;
+                    if (msg.startsWith("IMAGE:")) {
+                        try { byte[] bytes = Base64.decode(msg.substring(6),Base64.DEFAULT); Bitmap photo = BitmapFactory.decodeByteArray(bytes,0,bytes.length);
+                            if (photo != null) { ImageView picture = new ImageView(this); picture.setImageBitmap(photo); picture.setAdjustViewBounds(true); picture.setMaxHeight(dp(280));
+                                LinearLayout.LayoutParams imageLp = new LinearLayout.LayoutParams(-1,-2); imageLp.setMargins(dp(12),dp(4),dp(12),dp(4)); messages.addView(picture,imageLp); }
+                        } catch (Exception ignored) { } continue;
+                    }
                     TextView bubble = text(msg.startsWith("AUDIO:") ? "▶ Reproducir audio" : msg, 16, Color.DKGRAY, false);
                     if (msg.startsWith("AUDIO:")) bubble.setOnClickListener(v -> playVoice(msg.substring(6)));
                     bubble.setBackgroundColor(mine ? Color.rgb(218,246,227) : Color.WHITE);
