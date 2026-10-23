@@ -93,7 +93,7 @@ service cloud.firestore {
           && request.resource.data.senderId == request.auth.uid
           && request.resource.data.text is string
           && request.resource.data.text.size() > 0
-          && request.resource.data.text.size() <= 4000
+          && request.resource.data.text.size() <= 150000
           && request.resource.data.createdAt == request.time;
         allow update, delete: if false;
       }
