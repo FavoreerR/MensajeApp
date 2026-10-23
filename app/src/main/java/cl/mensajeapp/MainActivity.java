@@ -450,12 +450,33 @@ public class MainActivity extends Activity {
     private void showProfile() {
         FirebaseUser me = auth.getCurrentUser();
         if (me == null) { showEmailLogin(); return; }
-        start("Mi perfil");
-        root.addView(text("Agrega tu nombre, correo y teléfono. Puedes elegir si otros usuarios podrán encontrarte por número.", 14, Color.DKGRAY, false));
+        root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(Color.WHITE);
+        setContentView(root);
+        TextView heading = text("‹     Mi perfil", 23, Color.rgb(35,35,35), true);
+        heading.setOnClickListener(v -> showHome());
+        root.addView(heading);
+        ScrollView profileScroll = new ScrollView(this);
+        root.addView(profileScroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(20), dp(10), dp(20), dp(22));
+        profileScroll.addView(content);
+        TextView banner = text("MensajeApp", 18, Color.rgb(185,22,47), true);
+        banner.setGravity(Gravity.CENTER);
+        GradientDrawable bannerBg = new GradientDrawable();
+        bannerBg.setColor(Color.rgb(255,234,238));
+        bannerBg.setCornerRadius(dp(22));
+        banner.setBackground(bannerBg);
+        content.addView(banner, new LinearLayout.LayoutParams(-1, dp(92)));
+        TextView instruction = text("Tu información personal", 16, Color.rgb(80,80,80), false);
+        instruction.setGravity(Gravity.CENTER);
+        content.addView(instruction);
         profilePreview = avatarView(pendingAvatar);
-        LinearLayout.LayoutParams photoParams = new LinearLayout.LayoutParams(dp(104), dp(104));
-        photoParams.setMargins(dp(22), dp(10), dp(22), dp(10)); root.addView(profilePreview, photoParams);
-        Button photo = new Button(this); photo.setText("Elegir foto de galería"); root.addView(photo);
+        LinearLayout.LayoutParams photoParams = new LinearLayout.LayoutParams(dp(142), dp(142));
+        photoParams.gravity = Gravity.CENTER_HORIZONTAL; photoParams.setMargins(0, dp(0), 0, dp(12)); root.addView(profilePreview, photoParams);
+        Button photo = new Button(this); photo.setText("✎  Cambiar fotografía"); root.addView(photo);
         photo.setOnClickListener(v -> {
             Intent intent = new Intent(Intent.ACTION_GET_CONTENT); intent.setType("image/*");
             startActivityForResult(intent, PICK_AVATAR);
@@ -466,7 +487,7 @@ public class MainActivity extends Activity {
         EditText phone = new EditText(this); phone.setHint("Teléfono, ejemplo +56912345678"); phone.setInputType(InputType.TYPE_CLASS_PHONE); root.addView(phone);
         android.widget.CheckBox discoverable = new android.widget.CheckBox(this); discoverable.setText("Permitir que me encuentren por teléfono (no verificado)"); root.addView(discoverable);
         TextView status = text("El nombre de usuario se elige una vez y debe ser único.", 13, Color.GRAY, false); root.addView(status);
-        Button save = new Button(this); save.setText("Guardar perfil"); root.addView(save);
+        Button save = new Button(this); save.setText("Guardar cambios"); root.addView(save);
         db.collection("users").document(me.getUid()).get().addOnSuccessListener(doc -> {
             if (doc.exists()) {
                 display.setText(doc.getString("displayName"));
@@ -514,7 +535,7 @@ public class MainActivity extends Activity {
             }).addOnSuccessListener(ok -> { pendingAvatar = ""; Toast.makeText(this, "Perfil guardado", Toast.LENGTH_SHORT).show(); showHome(); })
               .addOnFailureListener(e -> { save.setEnabled(true); status.setText("No se pudo guardar: " + e.getLocalizedMessage()); });
         });
-        Button back = new Button(this); back.setText("Volver"); root.addView(back); back.setOnClickListener(v -> showHome());
+        Button back = new Button(this); back.setText("Volver a los chats"); root.addView(back); back.setOnClickListener(v -> showHome());
     }
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
