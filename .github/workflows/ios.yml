@@ -1,0 +1,28 @@
+name: Compilar MensajeApp iOS
+on:
+  push:
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios.yml'
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Instalar XcodeGen
+        run: brew install xcodegen
+      - name: Generar proyecto iOS
+        working-directory: ios
+        run: xcodegen generate
+      - name: Compilar para simulador iPhone (sin firma)
+        working-directory: ios
+        run: |
+          xcodebuild -project MensajeApp.xcodeproj -scheme MensajeApp -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
+      - name: Guardar app de simulador
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: MensajeApp-iOS-Simulator
+          path: ios/build/Build/Products/Debug-iphonesimulator/MensajeApp.app
+          retention-days: 7
