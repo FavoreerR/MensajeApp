@@ -1,6 +1,10 @@
 package cl.mensajeapp;
 
 import android.app.Activity;
+import android.media.MediaRecorder;
+import android.media.MediaPlayer;
+import java.io.File;
+import java.nio.file.Files;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -57,6 +61,9 @@ public class MainActivity extends Activity {
     private static final int PICK_AVATAR = 81;
     private ImageView profilePreview;
     private String pendingAvatar = "";
+    private MediaRecorder voiceRecorder;
+    private File voiceFile;
+    private long voiceStarted;
     private PhoneAuthProvider.ForceResendingToken resendToken;
     @Override public void onCreate(Bundle state) { super.onCreate(state); getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE); getWindow().getDecorView().setFitsSystemWindows(false); getWindow().setStatusBarColor(green); getWindow().setNavigationBarColor(Color.rgb(246, 248, 247)); if (Build.VERSION.SDK_INT >= 26) getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR); auth = FirebaseAuth.getInstance(); db = FirebaseFirestore.getInstance(); requestNotificationPermission(); registerPushToken(); showHome(); }
     private void requestNotificationPermission() {
@@ -192,8 +199,8 @@ public class MainActivity extends Activity {
                     LinearLayout.LayoutParams itemParams = new LinearLayout.LayoutParams(-1, dp(82));
                     itemParams.setMargins(dp(6), dp(4), dp(6), dp(4));
                     list.addView(item, itemParams);
-                    TextView avatar = text("●", 26, green, true);
-                    item.addView(avatar);
+                    ImageView avatar = avatarView("");
+                    item.addView(avatar, new LinearLayout.LayoutParams(dp(54),dp(54)));
                     LinearLayout detail = new LinearLayout(this); detail.setOrientation(LinearLayout.VERTICAL);
                     item.addView(detail, new LinearLayout.LayoutParams(0, -2, 1));
                     TextView name = text("Contacto", 17, Color.DKGRAY, true); detail.addView(name);
@@ -201,6 +208,10 @@ public class MainActivity extends Activity {
                     db.collection("users").document(other).get().addOnSuccessListener(userDoc -> {
                         String displayName = userDoc.getString("displayName");
                         String username = userDoc.getString("username");
+                        String photo = userDoc.getString("avatar");
+                        if (photo != null && !photo.isEmpty()) {
+                            try { byte[] raw = Base64.decode(photo, Base64.DEFAULT); avatar.setImageBitmap(BitmapFactory.decodeByteArray(raw,0,raw.length)); } catch (Exception ignored) { }
+                        }
                         if (displayName != null && !displayName.isEmpty()) name.setText(displayName);
                         else if (username != null) name.setText("@" + username);
                     });
@@ -209,7 +220,7 @@ public class MainActivity extends Activity {
                         .addOnSuccessListener(recent -> {
                             if (!recent.isEmpty()) {
                                 String last = recent.getDocuments().get(0).getString("text");
-                                if (last != null) preview.setText(last.length() > 48 ? last.substring(0, 48) + "…" : last);
+                                if (last != null) preview.setText(last.startsWith("AUDIO:") ? "🎤 Mensaje de voz" : (last.length() > 48 ? last.substring(0, 48) + "…" : last));
                             }
                         });
                     item.setOnClickListener(v -> showRemoteChat(chatId, other));
@@ -529,7 +540,16 @@ public class MainActivity extends Activity {
         FirebaseUser me = auth.getCurrentUser();
         if (me == null) { showHome(); return; }
         start("Chat en tiempo real");
-        root.addView(text("Contacto: " + other, 12, Color.GRAY, false));
+        LinearLayout contactHeader = new LinearLayout(this); contactHeader.setGravity(Gravity.CENTER_VERTICAL);
+        ImageView contactPhoto = avatarView(""); contactHeader.addView(contactPhoto, new LinearLayout.LayoutParams(dp(48),dp(48)));
+        TextView contactName = text("Contacto", 18, Color.DKGRAY, true); contactHeader.addView(contactName);
+        root.addView(contactHeader);
+        db.collection("users").document(other).get().addOnSuccessListener(doc -> {
+            String displayName = doc.getString("displayName");
+            if (displayName != null) contactName.setText(displayName);
+            String photo = doc.getString("avatar");
+            if (photo != null) try { byte[] raw = Base64.decode(photo,Base64.DEFAULT); contactPhoto.setImageBitmap(BitmapFactory.decodeByteArray(raw,0,raw.length)); } catch (Exception ignored) { }
+        });
         ScrollView scroll = new ScrollView(this);
         LinearLayout messages = new LinearLayout(this); messages.setOrientation(LinearLayout.VERTICAL);
         scroll.addView(messages); root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
@@ -537,7 +557,37 @@ public class MainActivity extends Activity {
         EditText entry = new EditText(this); entry.setHint("Mensaje"); entry.setMaxLines(4);
         composer.addView(entry, new LinearLayout.LayoutParams(0, -2, 1));
         Button send = new Button(this); send.setText("Enviar"); composer.addView(send);
+        Button voice = new Button(this); voice.setText("🎤"); composer.addView(voice);
         root.addView(composer);
+        voice.setOnClickListener(v -> {
+            if (voiceRecorder == null) {
+                if (Build.VERSION.SDK_INT >= 23 && checkSelfPermission("android.permission.RECORD_AUDIO") != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                    requestPermissions(new String[]{"android.permission.RECORD_AUDIO"}, 202); Toast.makeText(this,"Autoriza el micrófono y vuelve a pulsar",Toast.LENGTH_LONG).show(); return;
+                }
+                try {
+                    voiceFile = new File(getCacheDir(),"voice_"+System.currentTimeMillis()+".3gp");
+                    voiceRecorder = new MediaRecorder(); voiceRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
+                    voiceRecorder.setOutputFormat(MediaRecorder.OutputFormat.THREE_GPP);
+                    voiceRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AMR_NB);
+                    voiceRecorder.setOutputFile(voiceFile.getAbsolutePath()); voiceRecorder.prepare(); voiceRecorder.start();
+                    voiceStarted = System.currentTimeMillis(); voice.setText("■ Detener");
+                } catch (Exception e) { stopVoice(); Toast.makeText(this,"No se pudo grabar",Toast.LENGTH_LONG).show(); }
+            } else {
+                long elapsed = System.currentTimeMillis()-voiceStarted;
+                stopVoice(); voice.setText("🎤");
+                if (elapsed < 800 || elapsed > 45000) { Toast.makeText(this,"Graba entre 1 y 45 segundos",Toast.LENGTH_SHORT).show(); return; }
+                try {
+                    String encoded = Base64.encodeToString(Files.readAllBytes(voiceFile.toPath()),Base64.NO_WRAP);
+                    if (encoded.length() > 140000) { Toast.makeText(this,"Audio demasiado largo",Toast.LENGTH_LONG).show(); return; }
+                    java.util.Map<String,Object> audio = new java.util.HashMap<>();
+                    audio.put("senderId",me.getUid()); audio.put("text","AUDIO:"+encoded);
+                    audio.put("createdAt",FieldValue.serverTimestamp());
+                    db.collection("chats").document(id).collection("messages").add(audio)
+                        .addOnFailureListener(e -> Toast.makeText(this,"No se pudo enviar el audio: "+e.getLocalizedMessage(),Toast.LENGTH_LONG).show());
+                } catch (Exception e) { Toast.makeText(this,"No se pudo preparar el audio",Toast.LENGTH_LONG).show(); }
+                if (voiceFile != null) voiceFile.delete();
+            }
+        });
         send.setOnClickListener(v -> {
             String msg = entry.getText().toString().trim();
             if (msg.isEmpty()) return;
@@ -560,7 +610,8 @@ public class MainActivity extends Activity {
                     String msg = doc.getString("text");
                     boolean mine = me.getUid().equals(doc.getString("senderId"));
                     if (msg == null) continue;
-                    TextView bubble = text(msg, 16, Color.DKGRAY, false);
+                    TextView bubble = text(msg.startsWith("AUDIO:") ? "▶ Reproducir audio" : msg, 16, Color.DKGRAY, false);
+                    if (msg.startsWith("AUDIO:")) bubble.setOnClickListener(v -> playVoice(msg.substring(6)));
                     bubble.setBackgroundColor(mine ? Color.rgb(218,246,227) : Color.WHITE);
                     bubble.setGravity(mine ? Gravity.END : Gravity.START);
                     LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1,-2);
@@ -572,5 +623,18 @@ public class MainActivity extends Activity {
         Button back = new Button(this); back.setText("Volver"); root.addView(back); back.setOnClickListener(v -> showHome());
     }
 
-    @Override public void onBackPressed() { showHome(); }
+    private void stopVoice() {
+        if (voiceRecorder != null) { try { voiceRecorder.stop(); } catch (Exception ignored) { } try { voiceRecorder.release(); } catch (Exception ignored) { } voiceRecorder = null; }
+    }
+    private void playVoice(String encoded) {
+        try {
+            File file = new File(getCacheDir(),"play_voice.3gp");
+            Files.write(file.toPath(),Base64.decode(encoded,Base64.DEFAULT));
+            MediaPlayer player = new MediaPlayer(); player.setDataSource(file.getAbsolutePath());
+            player.setOnCompletionListener(mp -> { mp.release(); file.delete(); });
+            player.prepare(); player.start();
+        } catch (Exception e) { Toast.makeText(this,"No se pudo reproducir el audio",Toast.LENGTH_SHORT).show(); }
+    }
+    @Override protected void onDestroy() { stopVoice(); super.onDestroy(); }
+    @Override public void onBackPressed() { stopVoice(); showHome(); }
 }
