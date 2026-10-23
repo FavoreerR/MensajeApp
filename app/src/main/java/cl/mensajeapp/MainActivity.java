@@ -475,7 +475,7 @@ public class MainActivity extends Activity {
         content.addView(instruction);
         profilePreview = avatarView(pendingAvatar);
         LinearLayout.LayoutParams photoParams = new LinearLayout.LayoutParams(dp(142), dp(142));
-        photoParams.gravity = Gravity.CENTER_HORIZONTAL; photoParams.setMargins(0, dp(0), 0, dp(12)); root.addView(profilePreview, photoParams);
+        photoParams.gravity = Gravity.CENTER_HORIZONTAL; photoParams.setMargins(0, dp(0), 0, dp(12)); content.addView(profilePreview, photoParams);
         Button photo = new Button(this); photo.setText("✎  Cambiar fotografía"); root.addView(photo);
         photo.setOnClickListener(v -> {
             Intent intent = new Intent(Intent.ACTION_GET_CONTENT); intent.setType("image/*");
