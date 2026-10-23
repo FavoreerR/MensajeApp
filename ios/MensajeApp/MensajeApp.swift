@@ -7,7 +7,7 @@ import UserNotifications
 
 final class PushDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate, MessagingDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
-        FirebaseApp.configure()
+        guard Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist") != nil else {\n            NSLog("Falta GoogleService-Info.plist: registra MensajeApp iOS en Firebase antes de ejecutar.")\n            return true\n        }\n        FirebaseApp.configure()
         Messaging.messaging().delegate = self
         UNUserNotificationCenter.current().delegate = self
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, _ in
